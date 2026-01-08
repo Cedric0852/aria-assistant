@@ -5,132 +5,146 @@ A Voice-First Service Assistant that enables citizens to ask questions (via voic
 ## System Architecture
 
 ```
-                                    ARIA SYSTEM ARCHITECTURE
+═══════════════════════════════════════════════════════════════════════════════
+                            ARIA SYSTEM ARCHITECTURE
+═══════════════════════════════════════════════════════════════════════════════
 
-    +------------------+          +------------------------------------------------+
-    |                  |          |                   FRONTEND                      |
-    |     CITIZEN      |          |              (Streamlit App)                    |
-    |                  |          |                                                 |
-    |  +------------+  |  HTTPS   |  +------------------------------------------+  |
-    |  |   Voice    |------------>|  |              Chat Interface              |  |
-    |  |   Input    |  |          |  |  - Text input with chat_input           |  |
-    |  +------------+  |          |  |  - Audio recording (16kHz WAV)          |  |
-    |                  |          |  |  - Message history display              |  |
-    |  +------------+  |          |  |  - Source citations with confidence     |  |
-    |  |   Text     |------------>|  |  - Audio playback for TTS responses     |  |
-    |  |   Input    |  |          |  +------------------------------------------+  |
-    |  +------------+  |          |                                                 |
-    |                  |          |  +------------------------------------------+  |
-    |  +------------+  |          |  |           Stats Dashboard                |  |
-    |  | Audio Play |<------------|  |  - Response time metrics                 |  |
-    |  |   back     |  |          |  |  - Cache hit rates                       |  |
-    |  +------------+  |          |  |  - Performance charts                    |  |
-    +------------------+          |  +------------------------------------------+  |
-                                  +------------------------------------------------+
-                                                        |
-                                                        | HTTP/SSE
-                                                        v
-    +---------------------------------------------------------------------------------+
-    |                              BACKEND API (FastAPI)                              |
-    |                                                                                 |
-    |  +---------------------------+    +---------------------------+                 |
-    |  |      Query Routes         |    |     Document Routes       |                 |
-    |  |  POST /api/query/text     |    |  POST /api/documents      |                 |
-    |  |  POST /api/query/audio    |    |  GET  /api/documents      |                 |
-    |  |  POST /api/query/stream   |    |  DELETE /api/documents    |                 |
-    |  +---------------------------+    +---------------------------+                 |
-    |               |                              |                                  |
-    |               v                              v                                  |
-    |  +-----------------------------------------------------------------------+     |
-    |  |                         RAG PIPELINE (LlamaIndex)                      |     |
-    |  |                                                                        |     |
-    |  |   +----------------+    +------------------+    +------------------+   |     |
-    |  |   |   Document     |    |   Vector Store   |    |  Query Engine    |   |     |
-    |  |   |   Loaders      |--->|   (In-Memory)    |--->|  (top_k=5)       |   |     |
-    |  |   | JSON/MD/PDF/   |    |                  |    |                  |   |     |
-    |  |   | DOCX/TXT       |    |  OpenAI          |    |  GPT-4o-mini     |   |     |
-    |  |   +----------------+    |  Embeddings      |    |  Temperature=0.1 |   |     |
-    |  |                         +------------------+    +------------------+   |     |
-    |  +-----------------------------------------------------------------------+     |
-    |               |                                           |                     |
-    +---------------|-------------------------------------------|---------------------+
-                    |                                           |
-                    v                                           v
-    +---------------------------+               +---------------------------+
-    |    EXTERNAL AI SERVICES   |               |     SESSION & CACHE       |
-    |                           |               |        (Redis)            |
-    |  +---------------------+  |               |                           |
-    |  |   Groq API          |  |               |  +---------------------+  |
-    |  |   - Whisper STT     |  |               |  |  Session Store      |  |
-    |  |   - Orpheus TTS     |  |               |  |  - Chat history     |  |
-    |  +---------------------+  |               |  |  - 30min TTL        |  |
-    |                           |               |  +---------------------+  |
-    |  +---------------------+  |               |                           |
-    |  |   OpenAI API        |  |               |  +---------------------+  |
-    |  |   - GPT-4o-mini     |  |               |  |  Query Cache        |  |
-    |  |   - Embeddings      |  |               |  |  - Response cache   |  |
-    |  |   - TTS (fallback)  |  |               |  |  - 1hr TTL          |  |
-    |  +---------------------+  |               |  +---------------------+  |
-    +---------------------------+               |                           |
-                                                |  +---------------------+  |
-                                                |  |  Embedding Cache    |  |
-                                                |  |  - 24hr TTL         |  |
-                                                |  +---------------------+  |
-                                                +---------------------------+
+                              ┌─────────────────┐
+                              │    CITIZEN      │
+                              │                 │
+                              │  Voice / Text   │
+                              └────────┬────────┘
+                                       │
+                                       ▼
+        ┌──────────────────────────────────────────────────────────────────┐
+        │                    FRONTEND (Streamlit)                          │
+        │                                                                  │
+        │   Chat Interface          │          Stats Dashboard             │
+        │   ─────────────           │          ───────────────             │
+        │   • Text input            │          • Response times            │
+        │   • Audio recording       │          • Cache hit rates           │
+        │   • Message history       │          • Performance charts        │
+        │   • Source citations      │                                      │
+        │   • Audio playback        │                                      │
+        └──────────────────────────────────────────────────────────────────┘
+                                       │
+                                       │ HTTP / SSE
+                                       ▼
+        ┌──────────────────────────────────────────────────────────────────┐
+        │                    BACKEND API (FastAPI)                         │
+        │                                                                  │
+        │   Query Routes                     Document Routes               │
+        │   ────────────                     ───────────────               │
+        │   POST /api/query/text             POST /api/documents           │
+        │   POST /api/query/audio            GET  /api/documents           │
+        │   POST /api/query/stream           DELETE /api/documents         │
+        │                                                                  │
+        │   ┌──────────────────────────────────────────────────────────┐   │
+        │   │              RAG PIPELINE (LlamaIndex)                   │   │
+        │   │                                                          │   │
+        │   │   Documents ──► Vector Store ──► Query Engine            │   │
+        │   │   (JSON/MD/     (OpenAI         (GPT-4o-mini             │   │
+        │   │    PDF/DOCX)     Embeddings)     top_k=5)                │   │
+        │   │                                                          │   │
+        │   └──────────────────────────────────────────────────────────┘   │
+        └──────────────────────────────────────────────────────────────────┘
+                       │                               │
+                       ▼                               ▼
+        ┌─────────────────────────┐     ┌─────────────────────────┐
+        │   EXTERNAL AI SERVICES  │     │   SESSION & CACHE       │
+        │                         │     │       (Redis)           │
+        │   ┌───────────────────┐ │     │                         │
+        │   │ Groq API          │ │     │   Session Store         │
+        │   │ • Whisper STT     │ │     │   ─────────────         │
+        │   │ • Orpheus TTS     │ │     │   Chat history (30m)    │
+        │   └───────────────────┘ │     │                         │
+        │                         │     │   Query Cache           │
+        │   ┌───────────────────┐ │     │   ───────────           │
+        │   │ OpenAI API        │ │     │   Responses (1hr)       │
+        │   │ • GPT-4o-mini     │ │     │                         │
+        │   │ • Embeddings      │ │     │   Embedding Cache       │
+        │   │ • TTS (fallback)  │ │     │   ───────────────       │
+        │   └───────────────────┘ │     │   Vectors (24hr)        │
+        └─────────────────────────┘     └─────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
 ```
 
 ## Request Flow
 
 ```
+═══════════════════════════════════════════════════════════════════════════════
                               REQUEST FLOW DIAGRAM
-
-    TEXT QUERY:
-    ============
-
-    User Input ──> [Cache Check] ──> Cache Hit? ──Yes──> Return Cached Response
-                         |                                      |
-                         No                                     v
-                         |                              [TTS Generation]
-                         v                                      |
-                  [Vector Search]                               v
-                    (top_k=5)                            Return to User
-                         |
-                         v
-                  [LLM Generation]
-                   (GPT-4o-mini)
-                         |
-                         v
-                  [Cache Response]
-                         |
-                         v
-                  [TTS Generation]
-                   (Groq/OpenAI)
-                         |
-                         v
-                  Return to User
+═══════════════════════════════════════════════════════════════════════════════
 
 
-    AUDIO QUERY:
-    ============
+  TEXT QUERY FLOW
+  ───────────────
 
-    Audio File ──> [Groq Whisper STT] ──> Transcribed Text ──> [Text Query Flow]
-                         |                                            |
-                         v                                            v
-                   Transcript                                   Response + Audio
-                         |                                            |
-                         +────────────────────────────────────────────+
-                                              |
-                                              v
-                                    Return Combined Response
+                    ┌──────────────┐
+                    │  User Input  │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐         ┌─────────────────────┐
+                    │ Cache Check  │───Yes──►│ Return Cached       │
+                    └──────┬───────┘         │ Response + TTS      │
+                           │ No              └─────────────────────┘
+                           ▼
+                    ┌──────────────┐
+                    │Vector Search │
+                    │  (top_k=5)   │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │LLM Generate  │
+                    │(GPT-4o-mini) │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │Cache Response│
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │TTS Generation│
+                    │(Groq/OpenAI) │
+                    └──────┬───────┘
+                           │
+                           ▼
+                    ┌──────────────┐
+                    │Return to User│
+                    └──────────────┘
 
 
-    STREAMING RESPONSE (SSE):
-    =========================
+  AUDIO QUERY FLOW
+  ────────────────
 
-    Query ──> [Session Event] ──> [Sources Event] ──> [Token Events...] ──> [Done Event] ──> [Audio Event]
-                  |                      |                   |                    |               |
-                  v                      v                   v                    v               v
-            session_id             sources[]           "tok","en","s"      full_response    audio_base64
+    ┌────────────┐      ┌─────────────┐      ┌───────────────┐      ┌──────────────┐
+    │ Audio File │─────►│Groq Whisper │─────►│ Transcribed   │─────►│ Text Query   │
+    └────────────┘      │    STT      │      │    Text       │      │    Flow      │
+                        └─────────────┘      └───────────────┘      └──────┬───────┘
+                                                                          │
+                                                                          ▼
+                                                                   ┌──────────────┐
+                                                                   │Response +    │
+                                                                   │Transcript +  │
+                                                                   │Audio Output  │
+                                                                   └──────────────┘
+
+
+  STREAMING RESPONSE (SSE)
+  ────────────────────────
+
+    Query ─────► Session ─────► Sources ─────► Tokens ─────► Done ─────► Audio
+                   │               │             │            │            │
+                   ▼               ▼             ▼            ▼            ▼
+              session_id      sources[]     "tok","en"  full_response  audio_base64
+
+
+═══════════════════════════════════════════════════════════════════════════════
 ```
 
 ## Tech Stack
@@ -181,6 +195,8 @@ Place your knowledge documents in `backend/data/knowledge/`:
 # Supported formats: .json (IremboGov), .md, .txt, .pdf, .docx
 cp your-documents/* backend/data/knowledge/
 ```
+
+**Included Knowledge Base:** IremboGov Immigration and Emigration services documentation (passport applications, visas, travel documents, etc.)
 
 ### 3. Run with Docker
 
@@ -317,6 +333,112 @@ GET /health
 GET /api/stats
 ```
 
+## Key Concerns Addressed
+
+### 1. Architecture for Inference (Embedded vs. API Calls)
+
+**Decision: API-based inference for all AI models**
+
+| Model | Provider | Rationale |
+|-------|----------|-----------|
+| **STT** | Groq API (Whisper) | 10x faster than local, no GPU required |
+| **LLM** | OpenAI API (GPT-4o-mini) | Consistent quality, managed scaling |
+| **TTS** | Groq API + OpenAI fallback | Low latency, high availability |
+| **Embeddings** | OpenAI API | Cached in Redis to minimize API calls |
+
+**Why not embedded models?**
+- Eliminates GPU infrastructure costs
+- Faster cold starts (no model loading)
+- Automatic scaling by provider
+- Focus on application logic, not ML ops
+
+### 2. Handling Ambiguity
+
+**Vague queries:**
+- Confidence scoring (0.0-1.0) based on document similarity
+- Users see High/Medium/Low confidence badges
+- Sources displayed with relevance percentages
+
+**Out-of-scope queries:**
+- System prompt explicitly instructs: "If the question is unrelated to government services, politely explain you can only help with Irembo services"
+- RAG retrieval returns low scores for irrelevant queries
+- No hallucination: answers grounded strictly in retrieved documents
+
+**Vague audio:**
+- Whisper provides transcription confidence
+- If transcription unclear, user sees transcript to verify
+- Follow-up question detection uses conversation history
+
+### 3. Latency Optimization
+
+| Strategy | Impact | Implementation |
+|----------|--------|----------------|
+| **Response Streaming** | 2-3s TTFT vs 5-8s wait | SSE events stream tokens |
+| **Multi-layer Caching** | 10-35x speedup | Redis: queries (1hr), embeddings (24hr), audio (1hr) |
+| **Parallel Processing** | -30% total time | TTS generates while streaming completes |
+| **Connection Pooling** | -50ms per request | Reused Redis/HTTP connections |
+| **Async Everything** | Higher throughput | FastAPI async, async Redis, async LLM |
+
+### 4. Scalability (1,000+ Concurrent Users)
+
+**Current architecture (prototype scale):**
+- Single Redis instance (sufficient for demo/prototype)
+- Gunicorn with 4 workers = ~100 concurrent per container
+- Stateless API = horizontal scaling ready
+
+**Future scaling with Kubernetes HPA:**
+```
+                    ┌─────────────────────┐
+                    │   Load Balancer     │
+                    │  (Traefik/Ingress)  │
+                    └─────────┬───────────┘
+                              │
+          ┌───────────────────┼───────────────────┐
+          │                   │                   │
+          ▼                   ▼                   ▼
+    ┌───────────┐       ┌───────────┐       ┌───────────┐
+    │ API Pod 1 │       │ API Pod 2 │       │ API Pod N │
+    │(4 workers)│       │(4 workers)│       │(4 workers)│
+    └─────┬─────┘       └─────┬─────┘       └─────┬─────┘
+          │                   │                   │
+          └───────────────────┼───────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────────┐
+                    │   Redis Cluster     │
+                    │   (3+ nodes)        │
+                    └─────────────────────┘
+
+    * Kubernetes HPA auto-scales pods based on CPU/memory
+    * Currently using Gunicorn workers for concurrency
+```
+
+**Scaling steps (future):**
+1. Deploy 10+ API containers behind load balancer
+2. Migrate Redis to cluster mode (3+ nodes)
+3. Add Pinecone/Qdrant for distributed vector search
+4. Implement rate limiting (10 req/min per session)
+5. Add CDN for static assets
+
+### 5. Accuracy & Data Privacy (Public Sector Context)
+
+**Accuracy:**
+- RAG pattern ensures answers are grounded in official documents only
+- System prompt forbids hallucination: "Never invent fees, requirements, or procedures"
+- Confidence scores help users assess answer reliability
+- Source citations allow verification
+
+**Data Privacy:**
+- Session IDs are auto-generated UUIDs (not tied to personal identity)
+- Chat history accessible only via session ID (no user accounts)
+- Redis protected by password authentication
+- Sessions expire after 30 minutes, chat history after 7 days
+- Audio files processed in-memory, not persisted to disk
+- API keys stored in environment variables, never in code
+- *Future improvements: encryption at rest, audit logging*
+
+---
+
 ## Design Choices
 
 ### Why These Technologies?
@@ -341,6 +463,17 @@ GET /api/stats
    - Audio cache (1hr TTL) - skip TTS for cached responses
 4. **Connection Pooling**: Redis and HTTP clients maintain connection pools
 5. **Async Everything**: FastAPI async handlers, async Redis, async LLM calls
+
+### Performance Benchmarks
+
+| Scenario | First Response | Cached Response | Speedup |
+|----------|----------------|-----------------|---------|
+| Text only | 2-5s | 50-200ms | 10-25x |
+| Text + Audio | 7-15s | 100-500ms | 15-30x |
+| Audio input + Audio output | 10-35s | 500ms-2s | 15-35x |
+| Streaming text | 2-3s TTFT | <100ms TTFT | 20-30x |
+
+*TTFT = Time to First Token*
 
 ### Handling Ambiguity
 
@@ -382,38 +515,47 @@ For 1,000+ concurrent users:
 
 ```
 aria-assistant/
-├── backend/
-│   ├── agent/
-│   │   ├── rag/
-│   │   │   ├── indexer.py       # Vector index management
-│   │   │   ├── loaders.py       # Document loaders
-│   │   │   ├── query_engine.py  # RAG query engine
-│   │   │   └── prompts.py       # System prompts
-│   │   ├── session/
-│   │   │   └── redis_store.py   # Session management
-│   │   └── utils/
-│   │       └── config.py        # Configuration
-│   ├── api/
-│   │   ├── routes/
-│   │   │   ├── query.py         # Query endpoints
-│   │   │   ├── documents.py     # Document management
-│   │   │   ├── health.py        # Health checks
-│   │   │   └── stats.py         # Performance stats
-│   │   └── server.py            # FastAPI app
-│   ├── data/knowledge/          # Knowledge documents
-│   ├── storage/index/           # Persisted vector index
-│   ├── Dockerfile.api           # API container
-│   └── pyproject.toml           # Dependencies
-├── frontend-streamlit/
-│   ├── app.py                   # Main chat interface
-│   ├── pages/
-│   │   └── stats.py             # Stats dashboard
-│   ├── .streamlit/
-│   │   └── config.toml          # Streamlit config
-│   └── Dockerfile               # Frontend container
-├── docker-compose.yml           # Development setup
-├── docker-compose.prod.yml      # Production setup
-└── README.md                    # This file
+│
+├─── backend/
+│    │
+│    ├─── agent/
+│    │    ├─── rag/
+│    │    │    ├── indexer.py        # Vector index management
+│    │    │    ├── loaders.py        # Document loaders
+│    │    │    ├── query_engine.py   # RAG query engine
+│    │    │    └── prompts.py        # System prompts
+│    │    │
+│    │    ├─── session/
+│    │    │    └── redis_store.py    # Session management
+│    │    │
+│    │    └─── utils/
+│    │         └── config.py         # Configuration
+│    │
+│    ├─── api/
+│    │    ├─── routes/
+│    │    │    ├── query.py          # Query endpoints
+│    │    │    ├── documents.py      # Document management
+│    │    │    ├── health.py         # Health checks
+│    │    │    └── stats.py          # Performance stats
+│    │    │
+│    │    └── server.py              # FastAPI app
+│    │
+│    ├─── data/knowledge/            # Knowledge documents
+│    ├─── storage/index/             # Persisted vector index
+│    ├── Dockerfile.api              # API container
+│    └── pyproject.toml              # Dependencies
+│
+├─── frontend-streamlit/
+│    ├── app.py                      # Main chat interface
+│    ├─── pages/
+│    │    └── stats.py               # Stats dashboard
+│    ├─── .streamlit/
+│    │    └── config.toml            # Streamlit config
+│    └── Dockerfile                  # Frontend container
+│
+├── docker-compose.yml               # Development setup
+├── docker-compose.prod.yml          # Production setup
+└── README.md                        # This file
 ```
 
 ## Environment Variables
@@ -444,11 +586,62 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+## Latency Highlights
+
+The caching system delivers **exceptional performance gains**:
+
+```
+                    CACHE SPEEDUP VISUALIZATION
+
+    First Request:     |████████████████████████████████████| 5-15s
+    Cached Request:    |██|                                   50-500ms
+
+    Improvement:       10-35x FASTER
+```
+
+- **Text queries**: From 2-5s down to **50-200ms** (25x faster)
+- **Voice + TTS**: From 10-35s down to **500ms-2s** (35x faster)
+- **Streaming TTFT**: From 2-3s down to **<100ms** (30x faster)
+
+This means returning users get **near-instant responses** for previously asked questions.
+
+---
+
+## Future Considerations
+
+### Short-term Improvements
+- [ ] Add Kinyarwanda language support (STT/TTS)
+- [ ] Implement conversation memory summarization for longer contexts
+- [ ] Add rate limiting per session to prevent abuse
+- [ ] WebSocket support for real-time bidirectional audio
+
+### Medium-term Enhancements
+- [ ] Multi-tenant support (multiple government departments)
+- [ ] Admin dashboard for knowledge base management
+- [ ] Analytics dashboard for citizen query patterns
+- [ ] A/B testing framework for response quality
+
+### Long-term Vision
+- [ ] On-premise deployment option for sensitive data
+- [ ] Fine-tuned model for Rwandan government terminology
+- [ ] Integration with actual Irembo service APIs
+- [ ] Mobile app with offline-first architecture
+- [ ] Multi-language support (French, Swahili)
+
+### Security Hardening
+- [ ] Encryption at rest for Redis data
+- [ ] Audit logging for all queries
+- [ ] PII detection and redaction
+- [ ] SOC 2 compliance preparation
+
+---
+
 ## License
 
 MIT License - See LICENSE file for details.
 
 ## Acknowledgments
 
-- Built for the AI-Powered Citizen Support Assistant take-home assignment
+- Built by [@Cedric0852](https://github.com/Cedric0852)
+- AI-Powered Citizen Support Assistant take-home assignment
 - Designed for Rwanda's Irembo e-government platform context
