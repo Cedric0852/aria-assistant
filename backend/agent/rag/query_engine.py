@@ -27,6 +27,11 @@ from .prompts import (
     LOW_CONFIDENCE_PREFIX,
     format_sources,
 )
+from .domain_classifier import (
+    classify_query,
+    QueryCategory,
+    OFF_TOPIC_RESPONSE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -262,10 +267,11 @@ async def query_knowledge_base(
     Query the knowledge base and return a grounded response.
 
     This is the main query function that:
-    1. PRE-CHECK: Classify if query is about Irembo services
-    2. Retrieves relevant documents from the vector store
-    3. Generates a response using the LLM
-    4. Tracks sources and confidence
+    1. LAYER 0: Pydantic AI classifier (gpt-5-nano reasoning) for domain classification
+    2. LAYER 1-4: RAG pipeline with hallucination prevention
+    3. Retrieves relevant documents from the vector store
+    4. Generates a response using the LLM
+    5. Tracks sources and confidence
 
     Args:
         query: The user's question
@@ -278,16 +284,62 @@ async def query_knowledge_base(
     Returns:
         QueryResult with answer, sources, and confidence
     """
-    # PRE-RETRIEVAL CHECK: Reject obviously off-topic queries immediately
-    if is_off_topic_query(query):
-        logger.info(f"Query '{query}' rejected by pre-retrieval domain classifier")
-        return QueryResult(
-            answer=NO_INFORMATION_RESPONSE,
-            sources=[],
-            confidence=0.0,
-            query=query,
-            has_relevant_context=False,
+    # ==========================================================================
+    # LAYER 0: Pydantic AI Domain Classifier (gpt-5-nano with reasoning)
+    # ==========================================================================
+    # Uses intelligent reasoning to classify queries before RAG retrieval
+    try:
+        classification = await classify_query(query)
+        logger.info(
+            f"Pydantic AI classification: {classification.category.value} "
+            f"(reasoning: {classification.reasoning[:50]}...)"
         )
+
+        # Handle greetings - direct response, no RAG needed
+        if classification.category == QueryCategory.GREETING:
+            return QueryResult(
+                answer=classification.direct_response or "Hello! How can I help you with Irembo services?",
+                sources=[],
+                confidence=1.0,
+                query=query,
+                has_relevant_context=True,  # Greeting is always relevant
+            )
+
+        # Handle small talk - direct response, no RAG needed
+        if classification.category == QueryCategory.SMALL_TALK:
+            return QueryResult(
+                answer=classification.direct_response or "I'm here to help with Irembo government services!",
+                sources=[],
+                confidence=1.0,
+                query=query,
+                has_relevant_context=True,
+            )
+
+        # Handle off-topic queries - polite decline
+        if classification.category == QueryCategory.OFF_TOPIC:
+            logger.info(f"Query '{query}' rejected by Pydantic AI classifier (off-topic)")
+            return QueryResult(
+                answer=OFF_TOPIC_RESPONSE,
+                sources=[],
+                confidence=0.0,
+                query=query,
+                has_relevant_context=False,
+            )
+
+        # If category is IREMBO_SERVICE, continue to RAG pipeline below
+
+    except Exception as e:
+        logger.warning(f"Pydantic AI classifier failed: {e}, falling back to pattern matching")
+        # Fallback to simple pattern matching if classifier fails
+        if is_off_topic_query(query):
+            logger.info(f"Query '{query}' rejected by fallback pattern classifier")
+            return QueryResult(
+                answer=NO_INFORMATION_RESPONSE,
+                sources=[],
+                confidence=0.0,
+                query=query,
+                has_relevant_context=False,
+            )
 
     index_dir = Path(index_dir or DEFAULT_INDEX_DIR)
 

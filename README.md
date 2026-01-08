@@ -161,6 +161,7 @@ A Voice-First Service Assistant that enables citizens to ask questions (via voic
 | **Frontend** | Streamlit 1.40+ | Chat UI with voice input |
 | **Backend** | FastAPI + Gunicorn | RESTful API server |
 | **RAG Framework** | LlamaIndex | Document indexing & retrieval |
+| **Domain Classifier** | Pydantic AI + GPT-5-nano | Query classification with reasoning |
 | **LLM** | OpenAI GPT-4o-mini | Response generation |
 | **Embeddings** | OpenAI text-embedding-3-small | Vector embeddings |
 | **STT** | Groq Whisper large-v3-turbo | Speech-to-text |
@@ -440,12 +441,13 @@ Preventing hallucination is critical for a government services assistant. ARIA i
         │
         ▼
   ┌─────────────────────────────────────────────────────────────────────────┐
-  │  LAYER 0: Pre-Retrieval Domain Classifier (is_off_topic_query)          │
+  │  LAYER 0: Pydantic AI Domain Classifier (gpt-5-nano with reasoning)     │
   │  ─────────────────────────────────────────────────────────              │
-  │  • Pattern matching for off-topic keywords (cook, recipe, math, etc.)   │
-  │  • Checks if query contains Irembo terms (passport, visa, permit, etc.) │
-  │  • If off-topic detected → Return NO_INFORMATION_RESPONSE immediately   │
-  │  • Saves compute by skipping vector search for obvious off-topic        │
+  │  • Uses OpenAI gpt-5-nano-2025-08-07 with reasoning_effort="low"        │
+  │  • Structured output: QueryCategory (irembo_service/greeting/off_topic) │
+  │  • Handles greetings & small talk with direct responses (no RAG)        │
+  │  • Off-topic → Polite decline; Irembo queries → Continue to RAG         │
+  │  • Fallback to pattern matching if classifier fails                     │
   └─────────────────────────────────────────────────────────────────────────┘
         │
         ▼
@@ -495,17 +497,36 @@ Preventing hallucination is critical for a government services assistant. ARIA i
 **Current Implementation:**
 | Layer | Technique | Purpose |
 |-------|-----------|---------|
-| Retrieval | `SimilarityPostprocessor(cutoff=0.4)` | Filter irrelevant documents before LLM |
-| Prompt | Strict QA template with decline triggers | Force LLM to refuse off-topic questions |
-| Synthesis | `response_mode="refine"` | Careful multi-step response generation |
-| Validation | Max score threshold check | Reject low-confidence answers post-generation |
+| **Layer 0** | Pydantic AI + `gpt-5-nano` reasoning | Intelligent domain classification before RAG |
+| **Layer 1** | `SimilarityPostprocessor(cutoff=0.6)` | Filter irrelevant documents before LLM |
+| **Layer 2** | Strict QA template with decline triggers | Force LLM to refuse off-topic questions |
+| **Layer 3** | `response_mode="refine"` | Careful multi-step response generation |
+| **Layer 4** | Max score threshold check | Reject low-confidence answers post-generation |
+
+**Pydantic AI Classifier Details:**
+```python
+# domain_classifier.py - Uses OpenAI reasoning model for classification
+from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
+
+model = OpenAIResponsesModel("gpt-5-nano-2025-08-07")
+settings = OpenAIResponsesModelSettings(
+    openai_reasoning_effort="low",  # Fast classification
+    openai_reasoning_summary="concise",
+)
+
+class QueryCategory(Enum):
+    IREMBO_SERVICE = "irembo_service"  # → Continue to RAG
+    GREETING = "greeting"              # → Direct response
+    SMALL_TALK = "small_talk"          # → Direct response
+    OFF_TOPIC = "off_topic"            # → Polite decline
+```
 
 ### 6. Future: Agentic RAG Architecture
 
 **Current Limitations of Simple RAG:**
-- Retrieves documents based on semantic similarity alone
+- ~~No reasoning step before answering~~ ✅ Now has Pydantic AI reasoning layer
 - Cannot decompose complex multi-part questions
-- No reasoning step before answering
 - Limited ability to handle follow-up questions with context
 - Single-shot retrieval without query refinement
 
