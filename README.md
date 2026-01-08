@@ -440,6 +440,16 @@ Preventing hallucination is critical for a government services assistant. ARIA i
         │
         ▼
   ┌─────────────────────────────────────────────────────────────────────────┐
+  │  LAYER 0: Pre-Retrieval Domain Classifier (is_off_topic_query)          │
+  │  ─────────────────────────────────────────────────────────              │
+  │  • Pattern matching for off-topic keywords (cook, recipe, math, etc.)   │
+  │  • Checks if query contains Irembo terms (passport, visa, permit, etc.) │
+  │  • If off-topic detected → Return NO_INFORMATION_RESPONSE immediately   │
+  │  • Saves compute by skipping vector search for obvious off-topic        │
+  └─────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
   │  LAYER 1: Retrieval Filtering (SimilarityPostprocessor)                 │
   │  ─────────────────────────────────────────────────────────              │
   │  • Retrieve top 5 documents from vector store                           │

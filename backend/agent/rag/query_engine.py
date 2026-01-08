@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Default configuration
 DEFAULT_TOP_K = 5
-DEFAULT_SIMILARITY_CUTOFF = 0.4  # Minimum 40% relevance required
+DEFAULT_SIMILARITY_CUTOFF = 0.6  # Minimum 40% relevance required
 DEFAULT_LLM_MODEL = "gpt-4o-mini"
 DEFAULT_TEMPERATURE = 0.1
 
@@ -209,6 +209,47 @@ def calculate_confidence(sources: List[Dict[str, Any]]) -> float:
     return round(min(1.0, max(0.0, confidence)), 4)
 
 
+def is_off_topic_query(query: str) -> bool:
+    """
+    Pre-retrieval domain classifier to detect obviously off-topic queries.
+    This runs BEFORE vector search to save compute and prevent hallucination.
+
+    Returns True if the query is clearly NOT about Irembo government services.
+    """
+    query_lower = query.lower().strip()
+
+    # Off-topic keywords that indicate non-Irembo queries
+    off_topic_patterns = [
+        # Cooking/Food
+        "cook", "recipe", "ingredient", "bake", "fry", "boil", "food", "meal",
+        "rice", "chicken", "beef", "vegetable", "soup", "cake", "bread",
+        # Math/Coding
+        "calculate", "math", "equation", "code", "program", "python", "javascript",
+        "algorithm", "function", "variable", "loop", "array",
+        # General knowledge
+        "capital of", "president of", "history of", "weather", "news",
+        "movie", "song", "game", "sport", "football", "basketball",
+        # Health (not government health services)
+        "symptom", "medicine", "cure", "disease", "doctor", "hospital",
+        # Other off-topic
+        "joke", "story", "poem", "write me", "translate", "summarize",
+    ]
+
+    # Check if query contains off-topic patterns
+    for pattern in off_topic_patterns:
+        if pattern in query_lower:
+            # But exclude if it also contains Irembo-related terms
+            irembo_terms = ["passport", "visa", "permit", "certificate", "license",
+                          "registration", "irembo", "government", "apply", "document",
+                          "fee", "requirement", "rwanda", "birth", "marriage", "death",
+                          "driving", "business", "tax", "id", "national"]
+            if not any(term in query_lower for term in irembo_terms):
+                logger.info(f"Query '{query}' classified as off-topic (pattern: {pattern})")
+                return True
+
+    return False
+
+
 async def query_knowledge_base(
     query: str,
     session: Optional[Any] = None,
@@ -221,9 +262,10 @@ async def query_knowledge_base(
     Query the knowledge base and return a grounded response.
 
     This is the main query function that:
-    1. Retrieves relevant documents from the vector store
-    2. Generates a response using the LLM
-    3. Tracks sources and confidence
+    1. PRE-CHECK: Classify if query is about Irembo services
+    2. Retrieves relevant documents from the vector store
+    3. Generates a response using the LLM
+    4. Tracks sources and confidence
 
     Args:
         query: The user's question
@@ -236,6 +278,17 @@ async def query_knowledge_base(
     Returns:
         QueryResult with answer, sources, and confidence
     """
+    # PRE-RETRIEVAL CHECK: Reject obviously off-topic queries immediately
+    if is_off_topic_query(query):
+        logger.info(f"Query '{query}' rejected by pre-retrieval domain classifier")
+        return QueryResult(
+            answer=NO_INFORMATION_RESPONSE,
+            sources=[],
+            confidence=0.0,
+            query=query,
+            has_relevant_context=False,
+        )
+
     index_dir = Path(index_dir or DEFAULT_INDEX_DIR)
 
     # Load or create index
