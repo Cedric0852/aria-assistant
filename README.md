@@ -427,13 +427,181 @@ GET /api/stats
 4. Implement rate limiting (10 req/min per session)
 5. Add CDN for static assets
 
-### 5. Accuracy & Data Privacy (Public Sector Context)
+### 5. Accuracy & Hallucination Prevention
 
-**Accuracy:**
-- RAG pattern ensures answers are grounded in official documents only
-- System prompt forbids hallucination: "Never invent fees, requirements, or procedures"
-- Confidence scores help users assess answer reliability
-- Source citations allow verification
+Preventing hallucination is critical for a government services assistant. ARIA implements a multi-layer defense:
+
+```
+═══════════════════════════════════════════════════════════════════════════════
+                        HALLUCINATION PREVENTION PIPELINE
+═══════════════════════════════════════════════════════════════════════════════
+
+  User Query: "How to cook rice?"
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  LAYER 1: Retrieval Filtering (SimilarityPostprocessor)                 │
+  │  ─────────────────────────────────────────────────────────              │
+  │  • Retrieve top 5 documents from vector store                           │
+  │  • Filter out documents with similarity < 40%                           │
+  │  • If all filtered → LLM receives EMPTY context                         │
+  └─────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  LAYER 2: Strict Prompt Engineering (QA_PROMPT_TEMPLATE)                │
+  │  ─────────────────────────────────────────────────────────              │
+  │  • 2-step evaluation: Is it about Irembo? Does context answer it?       │
+  │  • Automatic decline triggers for cooking, math, coding, etc.           │
+  │  • "If in doubt, DECLINE" instruction                                   │
+  │  • FORBIDDEN: Using training knowledge, guessing, being "helpful"       │
+  └─────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  LAYER 3: Refine Response Mode (REFINE_PROMPT_TEMPLATE)                 │
+  │  ─────────────────────────────────────────────────────────              │
+  │  • Process each context chunk sequentially                              │
+  │  • If existing answer DECLINES → Keep the decline                       │
+  │  • Only refine with DIRECTLY relevant Irembo information                │
+  └─────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  LAYER 4: Post-Generation Validation                                    │
+  │  ─────────────────────────────────────────────────────────              │
+  │  • Check max source score after LLM response                            │
+  │  • If max_score < 40% → Replace with NO_INFORMATION_RESPONSE            │
+  │  • If max_score < 60% → Add LOW_CONFIDENCE_PREFIX                       │
+  │  • Don't return sources if query rejected (prevents confusion)          │
+  └─────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  Result: "I can only help with questions about Irembo government services."
+
+═══════════════════════════════════════════════════════════════════════════════
+```
+
+**Current Implementation:**
+| Layer | Technique | Purpose |
+|-------|-----------|---------|
+| Retrieval | `SimilarityPostprocessor(cutoff=0.4)` | Filter irrelevant documents before LLM |
+| Prompt | Strict QA template with decline triggers | Force LLM to refuse off-topic questions |
+| Synthesis | `response_mode="refine"` | Careful multi-step response generation |
+| Validation | Max score threshold check | Reject low-confidence answers post-generation |
+
+### 6. Future: Agentic RAG Architecture
+
+**Current Limitations of Simple RAG:**
+- Retrieves documents based on semantic similarity alone
+- Cannot decompose complex multi-part questions
+- No reasoning step before answering
+- Limited ability to handle follow-up questions with context
+- Single-shot retrieval without query refinement
+
+**Reference Implementation: [RWAKA.rw](https://rwaka.rw)** - An advanced Agentic RAG system for Rwandan legal precedents that demonstrates reasoning capabilities:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  RWAKA EXAMPLE: Agentic RAG with Reasoning                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  User: "how to cook rice"                                                   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Reasoning                                                          │   │
+│  │  ──────────                                                         │   │
+│  │  STEP 1                                                             │   │
+│  │                                                                     │   │
+│  │  I'm specialized in Rwandan legal precedents and can help retrieve  │   │
+│  │  and analyze relevant caselaws. For cooking or culinary questions,  │   │
+│  │  you may want to refer to cooking guides or online recipes. If you  │   │
+│  │  have any legal-related queries, especially concerning Rwandan      │   │
+│  │  law, feel free to ask!                                             │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  Key Features:                                                              │
+│  • Explicit reasoning step visible to user                                  │
+│  • Domain classification before retrieval                                   │
+│  • Graceful decline with redirection                                        │
+│  • Maintains professional, helpful tone                                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Future Agentic RAG Improvements for ARIA:**
+
+```
+═══════════════════════════════════════════════════════════════════════════════
+                        AGENTIC RAG ARCHITECTURE (FUTURE)
+═══════════════════════════════════════════════════════════════════════════════
+
+  User Query: "What documents do I need for a passport, and how much does it cost?"
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  QUERY ANALYSIS AGENT                                                   │
+  │  ─────────────────────                                                  │
+  │  • Decompose into sub-questions:                                        │
+  │    1. "What documents are required for passport application?"           │
+  │    2. "How much does a passport cost in Rwanda?"                        │
+  │  • Classify query type: factual, procedural, comparison                 │
+  │  • Detect if follow-up question (use conversation context)              │
+  └─────────────────────────────────────────────────────────────────────────┘
+        │
+        ├──────────────────────┬──────────────────────┐
+        ▼                      ▼                      ▼
+  ┌────────────┐        ┌────────────┐        ┌────────────┐
+  │ Sub-Query  │        │ Sub-Query  │        │ Metadata   │
+  │ Retriever  │        │ Retriever  │        │ Filter     │
+  │ (docs)     │        │ (fees)     │        │ Agent      │
+  └─────┬──────┘        └─────┬──────┘        └─────┬──────┘
+        │                      │                      │
+        └──────────────────────┴──────────────────────┘
+                               │
+                               ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  RESPONSE SYNTHESIS AGENT                                               │
+  │  ─────────────────────────                                              │
+  │  • Combine sub-answers coherently                                       │
+  │  • Cross-reference for consistency                                      │
+  │  • Add source citations per claim                                       │
+  └─────────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  FAITHFULNESS EVALUATOR                                                 │
+  │  ─────────────────────────                                              │
+  │  • Check each claim against source documents                            │
+  │  • Score: faithfulness (0-1), relevancy (0-1)                           │
+  │  • If faithfulness < 0.8 → Regenerate or decline                        │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+```
+
+**Recommended Future Enhancements:**
+
+| Enhancement | Technology | Benefit |
+|-------------|------------|---------|
+| **Agentic Reasoning** | Claude/GPT-4 with CoT prompting | Visible reasoning steps like RWAKA (domain check → retrieval decision → response) |
+| **Sub-Question Decomposition** | LlamaIndex `SubQuestionQueryEngine` | Handle complex multi-part questions |
+| **Metadata Filtering** | `AutoRetriever` with filters | Route queries to relevant document types |
+| **Reranking** | Cohere Rerank / BGE Reranker | Improve retrieval precision |
+| **Faithfulness Evaluation** | LlamaIndex `FaithfulnessEvaluator` | Verify claims against sources |
+| **Hybrid Search** | BM25 + Vector (Pinecone/Qdrant) | Better keyword + semantic matching |
+| **Query Routing** | `RouterQueryEngine` | Different strategies for different query types |
+| **Conversation Memory** | `ChatMemoryBuffer` | Better follow-up question handling |
+| **Self-Correction** | Agent loop with reflection | Retry with refined query if confidence low |
+
+**Implementation Priority:**
+1. **High:** Agentic Reasoning + Reranking (transparency + accuracy)
+2. **Medium:** Sub-question decomposition + Faithfulness Evaluation
+3. **Lower:** Full agentic loop with self-correction (requires more compute)
+
+---
+
+### 7. Data Privacy (Public Sector Context)
 
 **Data Privacy:**
 - Session IDs are auto-generated UUIDs (not tied to personal identity)

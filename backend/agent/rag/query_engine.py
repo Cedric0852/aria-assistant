@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from llama_index.core import Settings, VectorStoreIndex
 from llama_index.core.postprocessor import SimilarityPostprocessor
+from llama_index.core.prompts import PromptTemplate
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.response_synthesizers import get_response_synthesizer
 from llama_index.core.retrievers import VectorIndexRetriever
@@ -20,6 +21,8 @@ from llama_index.llms.openai import OpenAI
 from .indexer import get_or_create_index, DEFAULT_INDEX_DIR
 from .prompts import (
     SYSTEM_PROMPT,
+    QA_PROMPT_TEMPLATE,
+    REFINE_PROMPT_TEMPLATE,
     NO_INFORMATION_RESPONSE,
     LOW_CONFIDENCE_PREFIX,
     format_sources,
@@ -29,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Default configuration
 DEFAULT_TOP_K = 5
-DEFAULT_SIMILARITY_CUTOFF = 0.5
+DEFAULT_SIMILARITY_CUTOFF = 0.4  # Minimum 40% relevance required
 DEFAULT_LLM_MODEL = "gpt-4o-mini"
 DEFAULT_TEMPERATURE = 0.1
 
@@ -86,7 +89,7 @@ def get_llm(
 def create_query_engine(
     index: VectorStoreIndex,
     top_k: int = DEFAULT_TOP_K,
-    similarity_cutoff: Optional[float] = None,  # Disabled by default - let LLM decide relevance
+    similarity_cutoff: float = DEFAULT_SIMILARITY_CUTOFF,  # Always filter by default
     llm: Optional[OpenAI] = None,
     streaming: bool = False,
 ) -> RetrieverQueryEngine:
@@ -96,7 +99,7 @@ def create_query_engine(
     Args:
         index: The VectorStoreIndex to query
         top_k: Number of top similar documents to retrieve
-        similarity_cutoff: Minimum similarity score threshold (None = no filtering)
+        similarity_cutoff: Minimum similarity score threshold (default 0.4)
         llm: The LLM to use for response generation
         streaming: Whether to enable streaming responses
 
@@ -112,16 +115,23 @@ def create_query_engine(
         similarity_top_k=top_k,
     )
 
-    node_postprocessors = []
-    if similarity_cutoff is not None and similarity_cutoff > 0:
-        postprocessor = SimilarityPostprocessor(
-            similarity_cutoff=similarity_cutoff,
-        )
-        node_postprocessors.append(postprocessor)
+    # ALWAYS use SimilarityPostprocessor to filter low-relevance nodes
+    # This prevents the LLM from seeing irrelevant context
+    node_postprocessors = [
+        SimilarityPostprocessor(similarity_cutoff=similarity_cutoff)
+    ]
 
+    # Use custom prompt templates to enforce RAG-only answers
+    qa_prompt = PromptTemplate(QA_PROMPT_TEMPLATE)
+    refine_prompt = PromptTemplate(REFINE_PROMPT_TEMPLATE)
+
+    # Use "refine" mode for more careful response synthesis
+    # This iterates through contexts and refines the answer, reducing hallucination
     response_synthesizer = get_response_synthesizer(
-        response_mode="compact",  # Compact mode synthesizes responses efficiently
+        response_mode="refine",
         streaming=streaming,
+        text_qa_template=qa_prompt,
+        refine_template=refine_prompt,
     )
 
     query_engine = RetrieverQueryEngine(
@@ -267,26 +277,32 @@ async def query_knowledge_base(
     # Calculate confidence
     confidence = calculate_confidence(sources)
 
-    # Check if we have relevant context
-    has_relevant_context = len(sources) > 0 and confidence >= similarity_cutoff
+    # STRICT RELEVANCE CHECK: Check the maximum individual source score
+    # If the best matching document is below the threshold, don't use LLM answer
+    max_source_score = max((s.get("score", 0) for s in sources), default=0)
+
+    # Check if we have relevant context - require max score >= threshold (40%)
+    has_relevant_context = len(sources) > 0 and max_source_score >= similarity_cutoff
 
     # Get the response text
     answer = str(response)
 
-    # Handle low confidence or no relevant context
+    # Handle low confidence or no relevant context - STRICTLY return NO_INFORMATION_RESPONSE
     if not has_relevant_context:
+        logger.info(f"Query '{query}' rejected: max_score={max_source_score}, threshold={similarity_cutoff}")
         answer = NO_INFORMATION_RESPONSE
-    elif confidence < 0.7:
+    elif max_source_score < 0.6:
+        # Medium confidence - still answer but with prefix
         answer = LOW_CONFIDENCE_PREFIX + answer
 
-    # Append source citations if requested
-    if include_sources and sources:
+    # Only append source citations if we have relevant context
+    if include_sources and sources and has_relevant_context:
         answer += format_sources(sources)
 
     return QueryResult(
         answer=answer,
-        sources=sources,
-        confidence=confidence,
+        sources=sources if has_relevant_context else [],  # Don't return misleading sources
+        confidence=max_source_score,  # Use max score as confidence metric
         query=query,
         has_relevant_context=has_relevant_context,
         raw_response=response,
