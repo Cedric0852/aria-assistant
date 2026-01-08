@@ -26,7 +26,7 @@ def get_time_in_seconds(ms: float) -> float:
     return ms / 1000
 
 
-@st.cache_data(ttl=10)
+@st.cache_resource(ttl=10)
 def fetch_stats():
     """Fetch stats from the backend API with short timeout."""
     try:
@@ -44,7 +44,7 @@ def fetch_stats():
 st.title("API Stats Dashboard")
 
 if st.button("Refresh"):
-    st.cache_data.clear()
+    st.cache_resource.clear()
     st.rerun()
 
 stats = fetch_stats()
