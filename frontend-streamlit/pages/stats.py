@@ -7,6 +7,8 @@ import streamlit as st
 
 st.set_page_config(page_title="API Stats", page_icon="📊", layout="wide")
 
+API_URL = os.environ.get("API_URL", "http://localhost:8000")
+
 
 def format_time(ms: float) -> str:
     """Format milliseconds to human-readable string."""
@@ -23,15 +25,20 @@ def get_time_in_seconds(ms: float) -> float:
         return 0
     return ms / 1000
 
-API_URL = os.environ.get("API_URL", "http://localhost:8000")
-
 
 @st.cache_data(ttl=10)
 def fetch_stats():
-    """Fetch stats from the backend API."""
-    response = requests.get(f"{API_URL}/api/stats", timeout=10)
-    response.raise_for_status()
-    return response.json()
+    """Fetch stats from the backend API with short timeout."""
+    try:
+        response = requests.get(f"{API_URL}/api/stats", timeout=3)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.Timeout:
+        return None
+    except requests.exceptions.ConnectionError:
+        return None
+    except Exception:
+        return None
 
 
 st.title("API Stats Dashboard")
@@ -40,8 +47,13 @@ if st.button("Refresh"):
     st.cache_data.clear()
     st.rerun()
 
+stats = fetch_stats()
+
+if stats is None:
+    st.warning("Could not connect to API. Stats unavailable.")
+    st.stop()
+
 try:
-    stats = fetch_stats()
     summary = stats.get("summary", {})
     endpoints = stats.get("endpoints", {})
 
@@ -180,7 +192,5 @@ try:
     else:
         st.info("No endpoint data available yet.")
 
-except requests.exceptions.RequestException as e:
-    st.error(f"Failed to fetch stats from API: {e}")
 except Exception as e:
-    st.error(f"An error occurred: {e}")
+    st.error(f"Error displaying stats: {e}")

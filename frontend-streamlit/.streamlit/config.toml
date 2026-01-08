@@ -2,26 +2,15 @@
 # This file contains production-ready settings for the Aria Assistant frontend
 
 [server]
-# Run in headless mode (no browser auto-open)
-headless = true
-
-# Enable XSRF protection for security (requires CORS enabled)
-enableXsrfProtection = true
-
-# Maximum file upload size in MB
-maxUploadSize = 10
-
-# Listen on all interfaces for container/production deployment
+#headless = true
 address = "0.0.0.0"
-
-# Default Streamlit port
 port = 8501
+maxUploadSize = 10
+enableCORS = false
+enableXsrfProtection = false
 
 [browser]
-# Disable telemetry/usage statistics
 gatherUsageStats = false
-
-# Server address for browser connections
 serverAddress = "0.0.0.0"
 
 [theme]

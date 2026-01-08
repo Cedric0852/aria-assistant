@@ -14,8 +14,10 @@ from io import BytesIO
 import requests
 import sseclient
 import streamlit as st
+import streamlit.components.v1 as components
 
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
+LOCAL_STORAGE_KEY = "aria_session_id"
 
 # Page configuration - must be first Streamlit command
 st.set_page_config(
@@ -64,17 +66,21 @@ st.markdown(
 
 
 def load_chat_history(session_id: str) -> list:
-    """Load chat history from backend API."""
+    """Load chat history from backend API with short timeout to prevent skeleton hang."""
     try:
         response = requests.get(
             f"{API_URL}/api/chat/history/{session_id}",
-            timeout=5,
+            timeout=2,
         )
         if response.status_code == 200:
             data = response.json()
             return data.get("messages", [])
-    except Exception as e:
-        st.warning(f"Could not load chat history: {e}")
+    except requests.exceptions.Timeout:
+        pass
+    except requests.exceptions.ConnectionError:
+        pass
+    except Exception:
+        pass
     return []
 
 
@@ -108,30 +114,65 @@ def clear_chat_history_api(session_id: str):
         pass
 
 
+def get_local_storage_session_id():
+    """Inject JavaScript to get session ID from localStorage and store in a hidden div."""
+    components.html(
+        f"""
+        <script>
+            const key = '{LOCAL_STORAGE_KEY}';
+            let sessionId = localStorage.getItem(key);
+            if (!sessionId) {{
+                sessionId = '{str(uuid.uuid4())}';
+                localStorage.setItem(key, sessionId);
+            }}
+            // Store in parent window for Streamlit to access via query params
+            const url = new URL(window.parent.location);
+            if (url.searchParams.get('sid') !== sessionId) {{
+                url.searchParams.set('sid', sessionId);
+                window.parent.history.replaceState({{}}, '', url);
+            }}
+        </script>
+        """,
+        height=0,
+    )
+
+
+def save_session_to_local_storage(session_id: str):
+    """Save session ID to localStorage."""
+    components.html(
+        f"""
+        <script>
+            localStorage.setItem('{LOCAL_STORAGE_KEY}', '{session_id}');
+        </script>
+        """,
+        height=0,
+    )
+
+
 def init_session_state():
-    """Initialize session state variables with persistent session_id via query params."""
-    # Get session_id from query params if exists (persists across refreshes)
+    """Initialize session state variables with persistent session_id via localStorage."""
+    # Inject localStorage script to sync session ID
+    get_local_storage_session_id()
+
+    # Get session_id from query params (set by localStorage script)
     query_session_id = st.query_params.get("sid")
 
     if "session_id" not in st.session_state:
         if query_session_id:
-            # Restore session_id from URL
             st.session_state.session_id = query_session_id
         else:
-            # Create new session_id and persist to URL
             st.session_state.session_id = str(uuid.uuid4())
-            st.query_params["sid"] = st.session_state.session_id
 
-    # Ensure session_id is always in query params
-    if "sid" not in st.query_params:
-        st.query_params["sid"] = st.session_state.session_id
-
-    # Load messages from API if not already loaded
+    # Initialize messages as empty list first to prevent skeleton hang
     if "messages" not in st.session_state:
-        st.session_state.messages = load_chat_history(st.session_state.session_id)
+        st.session_state.messages = []
+        st.session_state.history_loaded = False
 
-    # Track if history was loaded to avoid reloading
-    if "history_loaded" not in st.session_state:
+    # Load history in background (non-blocking)
+    if not st.session_state.get("history_loaded", False):
+        loaded_messages = load_chat_history(st.session_state.session_id)
+        if loaded_messages:
+            st.session_state.messages = loaded_messages
         st.session_state.history_loaded = True
 
 
@@ -234,11 +275,10 @@ def stream_text_response(query: str) -> dict:
                 event_type = data.get("type", "")
 
                 if event_type == "session":
-                    # Update session ID if provided
                     new_session_id = data.get("session_id")
                     if new_session_id:
                         st.session_state.session_id = new_session_id
-                        st.query_params["sid"] = new_session_id
+                        save_session_to_local_storage(new_session_id)
 
                 elif event_type == "sources":
                     result["sources"] = data.get("sources", [])
@@ -323,7 +363,7 @@ def send_audio_query(audio_bytes: bytes, filename: str = "audio.wav") -> dict:
         new_session_id = response_data.get("session_id")
         if new_session_id:
             st.session_state.session_id = new_session_id
-            st.query_params["sid"] = new_session_id
+            save_session_to_local_storage(new_session_id)
 
     except requests.exceptions.Timeout:
         result["error"] = "Request timed out. Please try again."
@@ -373,8 +413,9 @@ def main():
         if st.button("🗑️ Clear Chat"):
             clear_chat_history_api(st.session_state.session_id)
             st.session_state.messages = []
-            st.session_state.session_id = str(uuid.uuid4())
-            st.query_params["sid"] = st.session_state.session_id
+            new_session_id = str(uuid.uuid4())
+            st.session_state.session_id = new_session_id
+            save_session_to_local_storage(new_session_id)
             st.rerun()
 
         st.markdown("---")
@@ -385,9 +426,9 @@ def main():
             navigate government services on the Irembo platform.
 
             - Type in the chat box below
-            - Or record a voice message in the sidebar
+            - Or record a voice message
 
-            *Session persists via URL - bookmark to save!*
+            *Session persists automatically in your browser.*
             """
         )
 
