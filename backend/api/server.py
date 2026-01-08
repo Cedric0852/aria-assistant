@@ -41,12 +41,24 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Citizen Support API",
-    description="AI-powered citizen support assistant with RAG-based knowledge retrieval",
+    title="ARIA - Citizen Support API",
+    description="""
+AI-powered citizen support assistant with RAG-based knowledge retrieval.
+
+**ARIA** (AI Rwanda Irembo Assistant) - A Voice-First citizen support system for Rwanda's e-government services.
+
+Built by [@Cedric0852](https://github.com/Cedric0852)
+
+[Live Demo](https://aria.lunaroot.rw) | [GitHub](https://github.com/Cedric0852/aria-assistant)
+""",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
+    contact={
+        "name": "Cedric",
+        "url": "https://github.com/Cedric0852",
+    },
 )
 
 cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")

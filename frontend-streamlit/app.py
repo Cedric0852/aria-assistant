@@ -439,6 +439,9 @@ def main():
             - Redis caching
 
             [View Stats](/stats) | [API Docs](https://aria-api.lunaroot.rw/docs)
+
+            ---
+            Built by [@Cedric0852](https://github.com/Cedric0852)
             """
         )
 
