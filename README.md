@@ -26,34 +26,64 @@ A Voice-First Service Assistant that enables citizens to ask questions (via voic
         ┌──────────────────────────────────────────────────────────────────┐
         │                    FRONTEND (Streamlit)                          │
         │                                                                  │
-        │   Chat Interface          │          Stats Dashboard             │
-        │   ─────────────           │          ───────────────             │
-        │   • Text input            │          • Response times            │
-        │   • Audio recording       │          • Cache hit rates           │
-        │   • Message history       │          • Performance charts        │
-        │   • Source citations      │                                      │
-        │   • Audio playback        │                                      │
+        │   Chat Interface (app.py)  │     Stats Dashboard (pages/stats.py)│
+        │   ─────────────────────    │     ────────────────────────────    │
+        │   • Text input             │     • Response time metrics         │
+        │   • Audio recording        │     • Cache hit rates               │
+        │   • Message history        │     • Performance visualization     │
+        │   • Source citations       │     • System health monitoring      │
+        │   • Audio playback (TTS)   │                                     │
         └──────────────────────────────────────────────────────────────────┘
                                        │
                                        │ HTTP / SSE
                                        ▼
         ┌──────────────────────────────────────────────────────────────────┐
-        │                    BACKEND API (FastAPI)                         │
+        │                    BACKEND API (FastAPI + Gunicorn)              │
+        │                         api/server.py                            │
         │                                                                  │
-        │   Query Routes                     Document Routes               │
-        │   ────────────                     ───────────────               │
-        │   POST /api/query/text             POST /api/documents           │
-        │   POST /api/query/audio            GET  /api/documents           │
-        │   POST /api/query/stream           DELETE /api/documents         │
-        │                                                                  │
-        │   ┌──────────────────────────────────────────────────────────┐   │
-        │   │              RAG PIPELINE (LlamaIndex)                   │   │
-        │   │                                                          │   │
-        │   │   Documents ──► Vector Store ──► Query Engine            │   │
-        │   │   (JSON/MD/     (OpenAI         (GPT-4o-mini             │   │
-        │   │    PDF/DOCX)     Embeddings)     top_k=5)                │   │
-        │   │                                                          │   │
-        │   └──────────────────────────────────────────────────────────┘   │
+        │   ┌─────────────────────────────────────────────────────────┐    │
+        │   │                    API ROUTES                           │    │
+        │   │   routes/query.py      routes/documents.py              │    │
+        │   │   ─────────────────    ────────────────────             │    │
+        │   │   POST /api/query/     POST /api/documents/upload       │    │
+        │   │     text               POST /api/documents/refresh      │    │
+        │   │   POST /api/query/     GET  /api/documents              │    │
+        │   │     text/stream        DELETE /api/documents/{id}       │    │
+        │   │   POST /api/query/                                      │    │
+        │   │     audio              routes/health.py  routes/stats.py│    │
+        │   │                        GET /health       GET /api/stats │    │
+        │   └─────────────────────────────────────────────────────────┘    │
+        │                              │                                   │
+        │                              ▼                                   │
+        │   ┌─────────────────────────────────────────────────────────┐    │
+        │   │              AGENT LAYER (agent/)                       │    │
+        │   │                                                         │    │
+        │   │   ┌─────────────────────────────────────────────────┐   │    │
+        │   │   │  Domain Classifier (rag/domain_classifier.py)   │   │    │
+        │   │   │  • Pydantic AI + GPT-4o-mini                    │   │    │
+        │   │   │  • Routes: irembo_service → RAG pipeline        │   │    │
+        │   │   │           greeting/small_talk → Direct response │   │    │
+        │   │   │           off_topic → Polite decline            │   │    │
+        │   │   └─────────────────────────────────────────────────┘   │    │
+        │   │                         │                               │    │
+        │   │                         ▼                               │    │
+        │   │   ┌─────────────────────────────────────────────────┐   │    │
+        │   │   │        RAG PIPELINE (LlamaIndex)                │   │    │
+        │   │   │                                                 │   │    │
+        │   │   │   rag/loaders.py ─► rag/indexer.py              │   │    │
+        │   │   │   (JSON/MD/PDF/     (Vector Store +             │   │    │
+        │   │   │    DOCX/TXT)         OpenAI Embeddings)         │   │    │
+        │   │   │         │                  │                    │   │    │
+        │   │   │         └────────┬─────────┘                    │   │    │
+        │   │   │                  ▼                              │   │    │
+        │   │   │   rag/query_engine.py ◄── rag/prompts.py        │   │    │
+        │   │   │   (GPT-4o-mini, top_k=5,  (QA & Refine          │   │    │
+        │   │   │    response_mode=refine)   templates)           │   │    │
+        │   │   └─────────────────────────────────────────────────┘   │    │
+        │   │                                                         │    │
+        │   │   session/redis_store.py    utils/config.py             │    │
+        │   │   (Session management)      (Environment config)        │    │
+        │   └─────────────────────────────────────────────────────────┘    │
         └──────────────────────────────────────────────────────────────────┘
                        │                               │
                        ▼                               ▼
@@ -63,16 +93,33 @@ A Voice-First Service Assistant that enables citizens to ask questions (via voic
         │   ┌───────────────────┐ │     │                         │
         │   │ Groq API          │ │     │   Session Store         │
         │   │ • Whisper STT     │ │     │   ─────────────         │
-        │   │ • Orpheus TTS     │ │     │   Chat history (30m)    │
-        │   └───────────────────┘ │     │                         │
-        │                         │     │   Query Cache           │
-        │   ┌───────────────────┐ │     │   ───────────           │
-        │   │ OpenAI API        │ │     │   Responses (1hr)       │
-        │   │ • GPT-4o-mini     │ │     │                         │
-        │   │ • Embeddings      │ │     │   Embedding Cache       │
-        │   │ • TTS (fallback)  │ │     │   ───────────────       │
-        │   └───────────────────┘ │     │   Vectors (24hr)        │
-        └─────────────────────────┘     └─────────────────────────┘
+        │   │   (large-v3-turbo)│ │     │   Chat history (30m)    │
+        │   │ • Orpheus TTS     │ │     │                         │
+        │   └───────────────────┘ │     │   Query Cache           │
+        │                         │     │   ───────────           │
+        │   ┌───────────────────┐ │     │   Responses (1hr)       │
+        │   │ OpenAI API        │ │     │                         │
+        │   │ • GPT-4o-mini     │ │     │   Embedding Cache       │
+        │   │   (LLM + Class.)  │ │     │   ───────────────       │
+        │   │ • Embeddings      │ │     │   Vectors (24hr)        │
+        │   │   (text-embed-3)  │ │     │                         │
+        │   │ • TTS-1 (fallback)│ │     │   Audio Cache           │
+        │   └───────────────────┘ │     │   ───────────           │
+        └─────────────────────────┘     │   TTS output (1hr)      │
+                                        └─────────────────────────┘
+                       │
+                       ▼
+        ┌─────────────────────────┐
+        │   KNOWLEDGE BASE        │
+        │   data/knowledge/       │
+        │                         │
+        │   • IremboGov JSON docs │
+        │   • Immigration services│
+        │   • Passport/Visa info  │
+        │                         │
+        │   storage/index/        │
+        │   • Persisted vectors   │
+        └─────────────────────────┘
 
 ═══════════════════════════════════════════════════════════════════════════════
 ```
@@ -724,44 +771,67 @@ aria-assistant/
 │
 ├─── backend/
 │    │
-│    ├─── agent/
-│    │    ├─── rag/
-│    │    │    ├── indexer.py        # Vector index management
-│    │    │    ├── loaders.py        # Document loaders
-│    │    │    ├── query_engine.py   # RAG query engine
-│    │    │    └── prompts.py        # System prompts
+│    ├─── agent/                          # Core AI Agent Layer
 │    │    │
-│    │    ├─── session/
-│    │    │    └── redis_store.py    # Session management
+│    │    ├─── rag/                       # RAG Pipeline Components
+│    │    │    ├── __init__.py
+│    │    │    ├── domain_classifier.py   # Pydantic AI query classifier (GPT-4o-mini)
+│    │    │    ├── indexer.py             # Vector index management & persistence
+│    │    │    ├── loaders.py             # Document loaders (JSON/MD/PDF/DOCX/TXT)
+│    │    │    ├── query_engine.py        # RAG query engine with streaming
+│    │    │    └── prompts.py             # QA & Refine prompt templates
 │    │    │
-│    │    └─── utils/
-│    │         └── config.py         # Configuration
+│    │    ├─── session/                   # Session Management
+│    │    │    ├── __init__.py
+│    │    │    └── redis_store.py         # Redis-backed session & cache store
+│    │    │
+│    │    └─── utils/                     # Utilities
+│    │         ├── __init__.py
+│    │         └── config.py              # Environment configuration
 │    │
-│    ├─── api/
-│    │    ├─── routes/
-│    │    │    ├── query.py          # Query endpoints
-│    │    │    ├── documents.py      # Document management
-│    │    │    ├── health.py         # Health checks
-│    │    │    └── stats.py          # Performance stats
+│    ├─── api/                            # FastAPI Application
+│    │    ├── __init__.py
+│    │    ├── server.py                   # FastAPI app entry point
 │    │    │
-│    │    └── server.py              # FastAPI app
+│    │    └─── routes/                    # API Endpoints
+│    │         ├── __init__.py
+│    │         ├── query.py               # /api/query/* (text, audio, stream)
+│    │         ├── documents.py           # /api/documents/* (upload, list, delete)
+│    │         ├── health.py              # /health endpoint
+│    │         ├── stats.py               # /api/stats endpoint
+│    │         └── token.py               # Token validation
 │    │
-│    ├─── data/knowledge/            # Knowledge documents
-│    ├─── storage/index/             # Persisted vector index
-│    ├── Dockerfile.api              # API container
-│    └── pyproject.toml              # Dependencies
+│    ├─── data/
+│    │    └─── knowledge/                 # Knowledge base documents (43 JSON files)
+│    │
+│    ├─── storage/
+│    │    └─── index/                     # Persisted vector index
+│    │
+│    ├── Dockerfile.api                   # Development container
+│    ├── Dockerfile.api.prod              # Production container
+│    ├── gunicorn.conf.py                 # Gunicorn server config
+│    └── pyproject.toml                   # Python dependencies
 │
 ├─── frontend-streamlit/
-│    ├── app.py                      # Main chat interface
+│    ├── app.py                           # Main chat interface
+│    │
 │    ├─── pages/
-│    │    └── stats.py               # Stats dashboard
+│    │    └── stats.py                    # Performance stats dashboard
+│    │
 │    ├─── .streamlit/
-│    │    └── config.toml            # Streamlit config
-│    └── Dockerfile                  # Frontend container
+│    │    └── config.toml                 # Streamlit configuration
+│    │
+│    ├── requirements.txt                 # Frontend dependencies
+│    ├── Dockerfile                       # Development container
+│    └── Dockerfile.prod                  # Production container
 │
-├── docker-compose.yml               # Development setup
-├── docker-compose.prod.yml          # Production setup
-└── README.md                        # This file
+├── docker-compose.yml                    # Development environment
+├── docker-compose.prod.yml               # Production environment
+├── .env.example.local                    # Local env template
+├── .env.example.prod                     # Production env template
+├── .gitignore
+├── LICENSE                               # MIT License
+└── README.md                             # This file
 ```
 
 ## Environment Variables
