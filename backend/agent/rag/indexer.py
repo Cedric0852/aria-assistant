@@ -584,3 +584,25 @@ def clear_index_cache() -> None:
     _cached_index = None
     _cached_index_dir = None
     logger.info("Index cache cleared")
+
+
+async def get_index_status() -> bool:
+    """
+    Check if a valid index exists (either cached or on disk).
+
+    Returns:
+        True if index is available, False otherwise
+    """
+    global _cached_index, _cached_index_dir
+
+    # Check memory cache first
+    if _cached_index is not None:
+        return True
+
+    # Check disk
+    index_dir = DEFAULT_INDEX_DIR
+    if not index_dir.exists():
+        return False
+
+    docstore_path = index_dir / "docstore.json"
+    return docstore_path.exists()

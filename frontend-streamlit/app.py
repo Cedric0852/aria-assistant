@@ -419,16 +419,26 @@ def main():
             st.rerun()
 
         st.markdown("---")
-        st.markdown("### ℹ️ About")
+        st.markdown("### About ARIA")
         st.markdown(
             """
-            ARIA is an AI-powered assistant that helps citizens
-            navigate government services on the Irembo platform.
+            **AI Rwanda Irembo Assistant**
 
-            - Type in the chat box below
-            - Or record a voice message
+            A Voice-First citizen support system for
+            Rwanda's e-government services.
 
-            *Session persists automatically in your browser.*
+            **Features:**
+            - Text & voice queries
+            - RAG-powered accurate answers
+            - Source citations
+            - Audio responses (TTS)
+
+            **Tech Stack:**
+            - LlamaIndex + GPT-4o-mini
+            - Groq Whisper (STT)
+            - Redis caching
+
+            [View Stats](/stats) | [API Docs](http://localhost:8635/docs)
             """
         )
 
