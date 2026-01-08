@@ -57,7 +57,7 @@ Built by [@Cedric0852](https://github.com/Cedric0852)
     redoc_url="/redoc",
     contact={
         "name": "Cedric",
-        "url": "https://github.com/Cedric0852",
+        "url": "mailto:mugishac777@gmail.com",
     },
 )
 
