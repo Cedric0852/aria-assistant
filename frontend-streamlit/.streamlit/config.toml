@@ -1,0 +1,47 @@
+# Streamlit Production Configuration
+# This file contains production-ready settings for the Aria Assistant frontend
+
+[server]
+# Run in headless mode (no browser auto-open)
+headless = true
+
+# Disable CORS for production (handle via reverse proxy)
+enableCORS = false
+
+# Enable XSRF protection for security
+enableXsrfProtection = true
+
+# Maximum file upload size in MB
+maxUploadSize = 10
+
+# Listen on all interfaces for container/production deployment
+address = "0.0.0.0"
+
+# Default Streamlit port
+port = 8501
+
+[browser]
+# Disable telemetry/usage statistics
+gatherUsageStats = false
+
+# Server address for browser connections
+serverAddress = "0.0.0.0"
+
+[theme]
+# Professional dark theme configuration
+primaryColor = "#4F8BF9"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#262730"
+textColor = "#FAFAFA"
+font = "sans serif"
+
+[logger]
+# Production logging level
+level = "info"
+
+[client]
+# Hide detailed error messages in production for security
+showErrorDetails = false
+
+# Minimal toolbar for cleaner production UI
+toolbarMode = "minimal"
