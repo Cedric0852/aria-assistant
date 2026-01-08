@@ -430,6 +430,8 @@ GET /api/stats
 
 ### 5. Accuracy & Hallucination Prevention
 
+> **✅ Production Tested**: The Pydantic AI domain classifier successfully blocks off-topic queries (e.g., "how to cook rice", "what is 2+2") while allowing Irembo government service questions through to the RAG pipeline.
+
 Preventing hallucination is critical for a government services assistant. ARIA implements a multi-layer defense:
 
 ```
@@ -503,25 +505,27 @@ Preventing hallucination is critical for a government services assistant. ARIA i
 | **Layer 3** | `response_mode="refine"` | Careful multi-step response generation |
 | **Layer 4** | Max score threshold check | Reject low-confidence answers post-generation |
 
-**Pydantic AI Classifier Details:**
+**Pydantic AI Classifier Details (✅ Production Tested):**
 ```python
-# domain_classifier.py - Uses OpenAI for structured classification
+# domain_classifier.py - Uses OpenAI gpt-4o-mini for fast structured classification
+# Tested: Successfully blocks "how to cook rice", "what is 2+2", etc.
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIResponsesModel
 
 model = OpenAIResponsesModel("gpt-4o-mini")
 
 class QueryCategory(Enum):
-    IREMBO_SERVICE = "irembo_service"  # → Continue to RAG
-    GREETING = "greeting"              # → Direct response
-    SMALL_TALK = "small_talk"          # → Direct response
-    OFF_TOPIC = "off_topic"            # → Polite decline
+    IREMBO_SERVICE = "irembo_service"  # → Continue to RAG pipeline
+    GREETING = "greeting"              # → Direct friendly response
+    SMALL_TALK = "small_talk"          # → Direct response (thank you, bye, etc.)
+    OFF_TOPIC = "off_topic"            # → Polite decline with redirect
 ```
 
 ### 6. Future: Agentic RAG Architecture
 
 **Current Limitations of Simple RAG:**
-- ~~No reasoning step before answering~~ ✅ Now has Pydantic AI reasoning layer
+- ~~No reasoning step before answering~~ ✅ Pydantic AI classifier (Layer 0) classifies queries before RAG
+- ~~Off-topic queries bypass domain filtering~~ ✅ Classifier integrated in both streaming & non-streaming endpoints
 - Cannot decompose complex multi-part questions
 - Limited ability to handle follow-up questions with context
 - Single-shot retrieval without query refinement
@@ -708,7 +712,7 @@ For 1,000+ concurrent users:
 | **Audio Response (TTS)** | Done | Groq Orpheus with OpenAI fallback |
 | **Session Management** | Done | Redis-backed sessions with 30min TTL |
 | **Low Latency** | Done | Streaming, caching, connection pooling |
-| **No Hallucination** | Done | RAG grounding + explicit system prompt |
+| **No Hallucination** | Done | Pydantic AI classifier (Layer 0) + RAG grounding + strict prompts |
 | **Production Quality** | Done | Docker, health checks, logging, error handling |
 | **Architecture Diagram** | Done | ASCII diagrams in this README |
 | **Dockerized Setup** | Done | docker-compose.yml and docker-compose.prod.yml |
