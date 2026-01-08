@@ -5,10 +5,7 @@
 # Run in headless mode (no browser auto-open)
 headless = true
 
-# Disable CORS for production (handle via reverse proxy)
-enableCORS = false
-
-# Enable XSRF protection for security
+# Enable XSRF protection for security (requires CORS enabled)
 enableXsrfProtection = true
 
 # Maximum file upload size in MB

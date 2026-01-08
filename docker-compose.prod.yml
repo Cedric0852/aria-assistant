@@ -37,6 +37,9 @@ services:
       dockerfile: Dockerfile.api.prod
     ports:
       - "8635:8000"
+    volumes:
+      - knowledge_data:/app/data/knowledge
+      - index_data:/app/storage/index
     env_file: .env
     environment:
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
@@ -113,6 +116,10 @@ services:
 volumes:
   redis_data:
     name: aria_redis_data
+  knowledge_data:
+    name: aria_knowledge_data
+  index_data:
+    name: aria_index_data
 
 networks:
   dokploy-network:
