@@ -34,11 +34,19 @@ st.markdown(
         padding: 1rem;
     }
     .source-card {
-        background-color: #f0f2f6;
+        background-color: #1e1e2e;
+        border: 1px solid #3d3d5c;
         border-radius: 0.5rem;
-        padding: 0.5rem 1rem;
-        margin: 0.25rem 0;
+        padding: 0.75rem 1rem;
+        margin: 0.5rem 0;
         font-size: 0.85rem;
+        color: #e0e0e0;
+    }
+    .source-card strong {
+        color: #ffffff;
+    }
+    .source-card a {
+        color: #58a6ff;
     }
     .confidence-badge {
         display: inline-block;
