@@ -31,7 +31,7 @@ services:
     expose:
       - "6379"
 
-  api:
+  aria-api:
     build:
       context: ./backend
       dockerfile: Dockerfile.api.prod
@@ -71,16 +71,16 @@ services:
       - "traefik.http.middlewares.aria-api-headers.headers.customresponseheaders.X-Content-Type-Options=nosniff"
       - "traefik.http.middlewares.aria-api-headers.headers.customresponseheaders.X-Frame-Options=DENY"
 
-  streamlit:
+  aria-streamlit:
     build:
       context: ./frontend-streamlit
       dockerfile: Dockerfile.prod
     ports:
       - "8501:8501"
     environment:
-      - API_URL=http://api:8000
+      - API_URL=http://aria-api:8000
     depends_on:
-      api:
+      aria-api:
         condition: service_healthy
     networks:
       - dokploy-network
