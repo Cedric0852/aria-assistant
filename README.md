@@ -161,7 +161,7 @@ A Voice-First Service Assistant that enables citizens to ask questions (via voic
 | **Frontend** | Streamlit 1.40+ | Chat UI with voice input |
 | **Backend** | FastAPI + Gunicorn | RESTful API server |
 | **RAG Framework** | LlamaIndex | Document indexing & retrieval |
-| **Domain Classifier** | Pydantic AI + GPT-5-nano | Query classification with reasoning |
+| **Domain Classifier** | Pydantic AI + GPT-4o-mini | Query classification |
 | **LLM** | OpenAI GPT-4o-mini | Response generation |
 | **Embeddings** | OpenAI text-embedding-3-small | Vector embeddings |
 | **STT** | Groq Whisper large-v3-turbo | Speech-to-text |
@@ -441,9 +441,9 @@ Preventing hallucination is critical for a government services assistant. ARIA i
         │
         ▼
   ┌─────────────────────────────────────────────────────────────────────────┐
-  │  LAYER 0: Pydantic AI Domain Classifier (gpt-5-nano with reasoning)     │
+  │  LAYER 0: Pydantic AI Domain Classifier (gpt-4o-mini)                    │
   │  ─────────────────────────────────────────────────────────              │
-  │  • Uses OpenAI gpt-5-nano-2025-08-07 with reasoning_effort="low"        │
+  │  • Uses OpenAI gpt-4o-mini for fast structured classification           │
   │  • Structured output: QueryCategory (irembo_service/greeting/off_topic) │
   │  • Handles greetings & small talk with direct responses (no RAG)        │
   │  • Off-topic → Polite decline; Irembo queries → Continue to RAG         │
@@ -497,7 +497,7 @@ Preventing hallucination is critical for a government services assistant. ARIA i
 **Current Implementation:**
 | Layer | Technique | Purpose |
 |-------|-----------|---------|
-| **Layer 0** | Pydantic AI + `gpt-5-nano` reasoning | Intelligent domain classification before RAG |
+| **Layer 0** | Pydantic AI + `gpt-4o-mini` | Intelligent domain classification before RAG |
 | **Layer 1** | `SimilarityPostprocessor(cutoff=0.6)` | Filter irrelevant documents before LLM |
 | **Layer 2** | Strict QA template with decline triggers | Force LLM to refuse off-topic questions |
 | **Layer 3** | `response_mode="refine"` | Careful multi-step response generation |
@@ -505,15 +505,11 @@ Preventing hallucination is critical for a government services assistant. ARIA i
 
 **Pydantic AI Classifier Details:**
 ```python
-# domain_classifier.py - Uses OpenAI reasoning model for classification
+# domain_classifier.py - Uses OpenAI for structured classification
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
+from pydantic_ai.models.openai import OpenAIResponsesModel
 
-model = OpenAIResponsesModel("gpt-5-nano-2025-08-07")
-settings = OpenAIResponsesModelSettings(
-    openai_reasoning_effort="low",  # Fast classification
-    openai_reasoning_summary="concise",
-)
+model = OpenAIResponsesModel("gpt-4o-mini")
 
 class QueryCategory(Enum):
     IREMBO_SERVICE = "irembo_service"  # → Continue to RAG

@@ -12,13 +12,13 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
+from pydantic_ai.models.openai import OpenAIResponsesModel
 
 logger = logging.getLogger(__name__)
 
-# Model configuration - using gpt-5-nano with reasoning for fast classification
-CLASSIFIER_MODEL = "gpt-5-nano-2025-08-07"
-REASONING_EFFORT = "low"  # Fast classification
+# Model configuration - using gpt-4o-mini for fast classification
+# Note: gpt-5-nano requires organization verification for reasoning summaries
+CLASSIFIER_MODEL = "gpt-4o-mini"
 
 
 class QueryCategory(str, Enum):
@@ -111,16 +111,11 @@ If you have any questions about Irembo government services, feel free to ask!
 
 
 def _create_classifier_agent() -> Agent[None, ClassificationResult]:
-    """Create the Pydantic AI classifier agent with reasoning model."""
+    """Create the Pydantic AI classifier agent."""
     model = OpenAIResponsesModel(CLASSIFIER_MODEL)
-    settings = OpenAIResponsesModelSettings(
-        openai_reasoning_effort=REASONING_EFFORT,
-        openai_reasoning_summary="concise",
-    )
 
     return Agent(
         model,
-        model_settings=settings,
         output_type=ClassificationResult,
         system_prompt=CLASSIFIER_SYSTEM_PROMPT,
     )

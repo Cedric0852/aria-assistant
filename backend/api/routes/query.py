@@ -526,15 +526,36 @@ async def query_knowledge_base(query: str, session_id: Optional[str] = None) -> 
         return cached
 
     try:
-        # Use OpenAI to determine if this needs RAG and generate response
-        client = get_openai_client()
-
-        # First, try to get relevant context from RAG
+        # First, try RAG query which includes domain classification
         rag_context = ""
         sources = []
         try:
             from agent.rag.query_engine import query_knowledge_base as rag_query
             rag_result = await rag_query(query)
+
+            # If query was rejected (off-topic, greeting, small_talk) or answered by classifier,
+            # use the answer directly without making another OpenAI call
+            if not rag_result.has_relevant_context and rag_result.confidence == 0.0:
+                # Off-topic query - use the rejection message
+                logger.info(f"Query rejected by classifier, returning rejection: {query[:50]}...")
+                result = {
+                    "answer": rag_result.answer,
+                    "sources": [],
+                    "session_id": actual_session_id,
+                }
+                await cache_response(query, result, actual_session_id)
+                return result
+
+            if rag_result.has_relevant_context and rag_result.confidence == 1.0 and not rag_result.sources:
+                # Greeting or small talk - use the direct response
+                logger.info(f"Greeting/small talk handled by classifier: {query[:50]}...")
+                result = {
+                    "answer": rag_result.answer,
+                    "sources": [],
+                    "session_id": actual_session_id,
+                }
+                await cache_response(query, result, actual_session_id)
+                return result
 
             # Only use RAG context if we found relevant information
             if rag_result.has_relevant_context and rag_result.sources:
@@ -549,6 +570,9 @@ async def query_knowledge_base(query: str, session_id: Optional[str] = None) -> 
                 rag_context = "\n\n".join(context_parts)
         except Exception as e:
             logger.warning(f"RAG query failed, proceeding without context: {e}")
+
+        # Use OpenAI for Irembo service queries that need RAG context
+        client = get_openai_client()
 
         # Build system prompt (agent-style)
         system_prompt = """You are ARIA, an AI Citizen Support Assistant for Irembo, Rwanda's e-government platform.
@@ -726,6 +750,72 @@ async def stream_query_response(query: str, session_id: Optional[str] = None) ->
         yield f"data: {json.dumps({'type': 'error', 'error': 'Empty query provided'})}\n\n"
         return
 
+    # ==========================================================================
+    # LAYER 0: Domain Classification (before cache check for proper filtering)
+    # ==========================================================================
+    try:
+        from agent.rag.domain_classifier import classify_query, QueryCategory, OFF_TOPIC_RESPONSE
+
+        logger.info(f"[STREAM] Classifying query: '{query[:50]}'")
+        classification = await classify_query(query)
+        logger.info(f"[STREAM] Classification: {classification.category.value} (reasoning: {classification.reasoning[:50]}...)")
+
+        # Check if classifier failed
+        classifier_failed = classification.reasoning.startswith("Classification failed")
+
+        if not classifier_failed:
+            # Handle greetings - direct response, no RAG needed
+            if classification.category == QueryCategory.GREETING:
+                logger.info(f"[STREAM] Greeting detected, returning direct response")
+                yield f"data: {json.dumps({'type': 'session', 'session_id': actual_session_id})}\n\n"
+                yield f"data: {json.dumps({'type': 'sources', 'sources': [], 'confidence': 1.0})}\n\n"
+                response = classification.direct_response or "Hello! How can I help you with Irembo services today?"
+                for i in range(0, len(response), 20):
+                    yield f"data: {json.dumps({'type': 'token', 'token': response[i:i+20]})}\n\n"
+                    await asyncio.sleep(0.01)
+                yield f"data: {json.dumps({'type': 'done', 'full_response': response})}\n\n"
+                return
+
+            # Handle small talk - direct response, no RAG needed
+            if classification.category == QueryCategory.SMALL_TALK:
+                logger.info(f"[STREAM] Small talk detected, returning direct response")
+                yield f"data: {json.dumps({'type': 'session', 'session_id': actual_session_id})}\n\n"
+                yield f"data: {json.dumps({'type': 'sources', 'sources': [], 'confidence': 1.0})}\n\n"
+                response = classification.direct_response or "I'm here to help with Irembo government services!"
+                for i in range(0, len(response), 20):
+                    yield f"data: {json.dumps({'type': 'token', 'token': response[i:i+20]})}\n\n"
+                    await asyncio.sleep(0.01)
+                yield f"data: {json.dumps({'type': 'done', 'full_response': response})}\n\n"
+                return
+
+            # Handle off-topic queries - polite decline
+            if classification.category == QueryCategory.OFF_TOPIC:
+                logger.info(f"[STREAM] Off-topic query rejected: '{query[:50]}'")
+                yield f"data: {json.dumps({'type': 'session', 'session_id': actual_session_id})}\n\n"
+                yield f"data: {json.dumps({'type': 'sources', 'sources': [], 'confidence': 0.0})}\n\n"
+                for i in range(0, len(OFF_TOPIC_RESPONSE), 20):
+                    yield f"data: {json.dumps({'type': 'token', 'token': OFF_TOPIC_RESPONSE[i:i+20]})}\n\n"
+                    await asyncio.sleep(0.01)
+                yield f"data: {json.dumps({'type': 'done', 'full_response': OFF_TOPIC_RESPONSE})}\n\n"
+                return
+        else:
+            # Classifier failed - use fallback pattern matching
+            logger.warning(f"[STREAM] Classifier failed, using fallback pattern matching")
+            from agent.rag.query_engine import is_off_topic_query
+            from agent.rag.prompts import NO_INFORMATION_RESPONSE
+            if is_off_topic_query(query):
+                logger.info(f"[STREAM] Query rejected by fallback pattern: '{query[:50]}'")
+                yield f"data: {json.dumps({'type': 'session', 'session_id': actual_session_id})}\n\n"
+                yield f"data: {json.dumps({'type': 'sources', 'sources': [], 'confidence': 0.0})}\n\n"
+                for i in range(0, len(NO_INFORMATION_RESPONSE), 20):
+                    yield f"data: {json.dumps({'type': 'token', 'token': NO_INFORMATION_RESPONSE[i:i+20]})}\n\n"
+                    await asyncio.sleep(0.01)
+                yield f"data: {json.dumps({'type': 'done', 'full_response': NO_INFORMATION_RESPONSE})}\n\n"
+                return
+
+    except Exception as e:
+        logger.error(f"[STREAM] Classification error: {e}, continuing to RAG")
+
     # Check cache FIRST before any API calls (session-aware)
     cached = await get_cached_response(query, actual_session_id)
     if cached:
@@ -750,7 +840,7 @@ async def stream_query_response(query: str, session_id: Optional[str] = None) ->
         rag_context = ""
         sources = []
         try:
-            from agent.rag.query_engine import get_or_create_index, extract_sources, calculate_confidence
+            from agent.rag.query_engine import get_or_create_index
             from agent.rag.indexer import DEFAULT_INDEX_DIR
             from llama_index.core.retrievers import VectorIndexRetriever
 
