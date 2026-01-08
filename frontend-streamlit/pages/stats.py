@@ -26,31 +26,28 @@ def get_time_in_seconds(ms: float) -> float:
     return ms / 1000
 
 
-@st.cache_resource(ttl=10)
 def fetch_stats():
-    """Fetch stats from the backend API with short timeout."""
+    """Fetch stats from the backend API."""
     try:
-        response = requests.get(f"{API_URL}/api/stats", timeout=3)
+        response = requests.get(f"{API_URL}/api/stats", timeout=5)
         response.raise_for_status()
         return response.json()
-    except requests.exceptions.Timeout:
-        return None
-    except requests.exceptions.ConnectionError:
-        return None
     except Exception:
         return None
 
 
 st.title("API Stats Dashboard")
 
-if st.button("Refresh"):
-    st.cache_resource.clear()
-    st.rerun()
+col_btn, col_status = st.columns([1, 4])
+with col_btn:
+    refresh = st.button("Refresh")
 
-stats = fetch_stats()
+with st.spinner("Loading stats..."):
+    stats = fetch_stats()
 
 if stats is None:
     st.warning("Could not connect to API. Stats unavailable.")
+    st.info(f"API URL: {API_URL}")
     st.stop()
 
 try:
