@@ -1,4 +1,5 @@
-# AI Citizen Support Assistant - Production Streamlit Dockerfile
+# ARIA - AI-Powered Citizen Support Assistant - Production Streamlit Dockerfile
+# Built by @Cedric0852 (https://github.com/Cedric0852)
 # Multi-stage build optimized for production deployment
 # syntax=docker/dockerfile:1.4
 

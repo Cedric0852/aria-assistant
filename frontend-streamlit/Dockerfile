@@ -1,3 +1,6 @@
+# ARIA - AI-Powered Citizen Support Assistant - Streamlit Frontend
+# Built by @Cedric0852 (https://github.com/Cedric0852)
+
 FROM python:3.11-slim
 
 WORKDIR /app

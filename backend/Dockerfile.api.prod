@@ -1,4 +1,5 @@
-# AI Citizen Support Assistant - Production API Dockerfile
+# ARIA - AI-Powered Citizen Support Assistant - Production API Dockerfile
+# Built by @Cedric0852 (https://github.com/Cedric0852)
 # Multi-stage build optimized for production deployment
 # syntax=docker/dockerfile:1.4
 
@@ -31,10 +32,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # =============================================================================
 FROM python:3.11-slim AS production
 
+# Cache bust argument - change to force rebuild of data layer
+ARG CACHEBUST=1
+
 # Labels for container metadata
-LABEL maintainer="AI Citizen Support Team"
+LABEL maintainer="Cedric <https://github.com/Cedric0852>"
 LABEL version="1.0"
-LABEL description="Production API for AI Citizen Support Assistant"
+LABEL description="ARIA - AI-Powered Citizen Support Assistant API"
 
 # Install runtime dependencies with BuildKit cache for faster rebuilds
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
@@ -56,7 +60,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Set working directory
 WORKDIR /app
 
-# Copy application code
+# Use CACHEBUST to invalidate cache for data files
+RUN echo "Cache bust: ${CACHEBUST}"
+
+# Copy application code (includes data/knowledge/)
 COPY --chown=api:api . .
 
 # Copy Gunicorn configuration if exists

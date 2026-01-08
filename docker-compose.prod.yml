@@ -36,10 +36,12 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.api.prod
+      args:
+        - CACHEBUST=${CACHEBUST:-1}
     ports:
       - "8635:8000"
     volumes:
-      - knowledge_data:/app/data/knowledge
+      # Only persist index, knowledge is baked into image
       - index_data:/app/storage/index
     env_file: .env
     environment:
@@ -117,8 +119,6 @@ services:
 volumes:
   redis_data:
     name: aria_redis_data
-  knowledge_data:
-    name: aria_knowledge_data
   index_data:
     name: aria_index_data
 

@@ -1,4 +1,5 @@
-# AI Citizen Support Assistant - API Dockerfile
+# ARIA - AI-Powered Citizen Support Assistant - API Dockerfile
+# Built by @Cedric0852 (https://github.com/Cedric0852)
 # Uses Gunicorn with 4 workers for production
 # syntax=docker/dockerfile:1.4
 
