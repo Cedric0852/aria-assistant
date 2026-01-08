@@ -42,7 +42,7 @@ services:
       - index_data:/app/storage/index
     env_file: .env
     environment:
-      - REDIS_URL=redis://default:${REDIS_PASSWORD}@redis:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
     depends_on:
       redis:
         condition: service_healthy
