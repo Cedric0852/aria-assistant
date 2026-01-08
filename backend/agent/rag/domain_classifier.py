@@ -152,26 +152,30 @@ async def classify_query(query: str) -> ClassificationResult:
     Returns:
         ClassificationResult with category, reasoning, and optional direct response
     """
-    agent = get_classifier_agent()
+    logger.info(f"[CLASSIFIER] Starting classification for: '{query[:100]}'")
 
     try:
+        agent = get_classifier_agent()
+        logger.info(f"[CLASSIFIER] Agent created, calling model: {CLASSIFIER_MODEL}")
+
         result = await agent.run(query)
         classification = result.output
 
-        # Log the classification
+        # Log the classification result
         logger.info(
-            f"Query classified: '{query[:50]}...' -> {classification.category.value} "
-            f"(should_use_rag={classification.should_use_rag})"
+            f"[CLASSIFIER] SUCCESS: '{query[:50]}' -> {classification.category.value} "
+            f"(reasoning: {classification.reasoning[:80]}..., should_use_rag={classification.should_use_rag})"
         )
 
         return classification
 
     except Exception as e:
-        logger.error(f"Classification failed for query '{query}': {e}")
+        logger.error(f"[CLASSIFIER] FAILED for query '{query}': {type(e).__name__}: {e}")
+        logger.warning(f"[CLASSIFIER] Falling back to IREMBO_SERVICE (will use RAG)")
         # Fallback: assume it might be Irembo-related and let RAG handle it
         return ClassificationResult(
             category=QueryCategory.IREMBO_SERVICE,
-            reasoning="Classification failed, defaulting to RAG pipeline",
+            reasoning=f"Classification failed ({type(e).__name__}), defaulting to RAG pipeline",
             direct_response=None,
             should_use_rag=True,
         )

@@ -228,6 +228,9 @@ def is_off_topic_query(query: str) -> bool:
         # Cooking/Food
         "cook", "recipe", "ingredient", "bake", "fry", "boil", "food", "meal",
         "rice", "chicken", "beef", "vegetable", "soup", "cake", "bread",
+        # Beauty/Cosmetics
+        "hair", "dye", "makeup", "cosmetic", "skincare", "nail", "salon",
+        "shampoo", "haircut", "hairstyle", "beauty",
         # Math/Coding
         "calculate", "math", "equation", "code", "program", "python", "javascript",
         "algorithm", "function", "variable", "loop", "array",
@@ -238,6 +241,7 @@ def is_off_topic_query(query: str) -> bool:
         "symptom", "medicine", "cure", "disease", "doctor", "hospital",
         # Other off-topic
         "joke", "story", "poem", "write me", "translate", "summarize",
+        "how to make", "how do i", "what is the best", "recommend",
     ]
 
     # Check if query contains off-topic patterns
@@ -288,15 +292,35 @@ async def query_knowledge_base(
     # LAYER 0: Pydantic AI Domain Classifier (gpt-5-nano with reasoning)
     # ==========================================================================
     # Uses intelligent reasoning to classify queries before RAG retrieval
-    try:
-        classification = await classify_query(query)
-        logger.info(
-            f"Pydantic AI classification: {classification.category.value} "
-            f"(reasoning: {classification.reasoning[:50]}...)"
-        )
+    logger.info(f"[QUERY_ENGINE] Processing query: '{query[:80]}'")
 
+    classification = await classify_query(query)
+    logger.info(
+        f"[QUERY_ENGINE] Classification result: {classification.category.value} "
+        f"(reasoning: {classification.reasoning[:50]}...)"
+    )
+
+    # Check if classifier failed (reasoning starts with "Classification failed")
+    classifier_failed = classification.reasoning.startswith("Classification failed")
+
+    if classifier_failed:
+        logger.warning(f"[QUERY_ENGINE] Classifier failed, using fallback pattern matching")
+        # Fallback to simple pattern matching if classifier fails
+        if is_off_topic_query(query):
+            logger.info(f"[QUERY_ENGINE] Query '{query}' rejected by fallback pattern classifier")
+            return QueryResult(
+                answer=NO_INFORMATION_RESPONSE,
+                sources=[],
+                confidence=0.0,
+                query=query,
+                has_relevant_context=False,
+            )
+        else:
+            logger.info(f"[QUERY_ENGINE] Query passed fallback check, continuing to RAG")
+    else:
         # Handle greetings - direct response, no RAG needed
         if classification.category == QueryCategory.GREETING:
+            logger.info(f"[QUERY_ENGINE] Greeting detected, returning direct response")
             return QueryResult(
                 answer=classification.direct_response or "Hello! How can I help you with Irembo services?",
                 sources=[],
@@ -307,6 +331,7 @@ async def query_knowledge_base(
 
         # Handle small talk - direct response, no RAG needed
         if classification.category == QueryCategory.SMALL_TALK:
+            logger.info(f"[QUERY_ENGINE] Small talk detected, returning direct response")
             return QueryResult(
                 answer=classification.direct_response or "I'm here to help with Irembo government services!",
                 sources=[],
@@ -317,7 +342,7 @@ async def query_knowledge_base(
 
         # Handle off-topic queries - polite decline
         if classification.category == QueryCategory.OFF_TOPIC:
-            logger.info(f"Query '{query}' rejected by Pydantic AI classifier (off-topic)")
+            logger.info(f"[QUERY_ENGINE] Query '{query}' rejected by Pydantic AI classifier (off-topic)")
             return QueryResult(
                 answer=OFF_TOPIC_RESPONSE,
                 sources=[],
@@ -327,19 +352,7 @@ async def query_knowledge_base(
             )
 
         # If category is IREMBO_SERVICE, continue to RAG pipeline below
-
-    except Exception as e:
-        logger.warning(f"Pydantic AI classifier failed: {e}, falling back to pattern matching")
-        # Fallback to simple pattern matching if classifier fails
-        if is_off_topic_query(query):
-            logger.info(f"Query '{query}' rejected by fallback pattern classifier")
-            return QueryResult(
-                answer=NO_INFORMATION_RESPONSE,
-                sources=[],
-                confidence=0.0,
-                query=query,
-                has_relevant_context=False,
-            )
+        logger.info(f"[QUERY_ENGINE] Irembo service query, continuing to RAG pipeline")
 
     index_dir = Path(index_dir or DEFAULT_INDEX_DIR)
 
