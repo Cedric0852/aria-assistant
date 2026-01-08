@@ -2,6 +2,13 @@
 
 A Voice-First Service Assistant that enables citizens to ask questions (via voice or text) about government services and receive accurate, context-aware guidance powered by RAG (Retrieval-Augmented Generation).
 
+## Live Demo
+
+| Service | URL |
+|---------|-----|
+| **Chat Interface** | [aria.lunaroot.rw](https://aria.lunaroot.rw/) |
+| **API Documentation** | [aria-api.lunaroot.rw/docs](https://aria-api.lunaroot.rw/docs) |
+
 ## System Architecture
 
 ```

@@ -438,7 +438,7 @@ def main():
             - Groq Whisper (STT)
             - Redis caching
 
-            [View Stats](/stats) | [API Docs](http://localhost:8635/docs)
+            [View Stats](/stats) | [API Docs](https://aria-api.lunaroot.rw/docs)
             """
         )
 
