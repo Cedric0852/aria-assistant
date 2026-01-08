@@ -48,25 +48,6 @@ st.markdown(
     .source-card a {
         color: #58a6ff;
     }
-    .confidence-badge {
-        display: inline-block;
-        padding: 0.2rem 0.5rem;
-        border-radius: 0.25rem;
-        font-size: 0.75rem;
-        font-weight: 600;
-    }
-    .confidence-high {
-        background-color: #d4edda;
-        color: #155724;
-    }
-    .confidence-medium {
-        background-color: #fff3cd;
-        color: #856404;
-    }
-    .confidence-low {
-        background-color: #f8d7da;
-        color: #721c24;
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -184,28 +165,12 @@ def init_session_state():
         st.session_state.history_loaded = True
 
 
-def display_sources(sources: list, confidence: float = 0.0):
-    """Display source documents with confidence indicator."""
+def display_sources(sources: list):
+    """Display source documents."""
     if not sources:
         return
 
-    if confidence >= 0.7:
-        conf_class = "confidence-high"
-        conf_label = "High confidence"
-    elif confidence >= 0.4:
-        conf_class = "confidence-medium"
-        conf_label = "Medium confidence"
-    else:
-        conf_class = "confidence-low"
-        conf_label = "Low confidence"
-
     with st.expander(f"📚 Sources ({len(sources)})"):
-        if confidence > 0:
-            st.markdown(
-                f'<span class="confidence-badge {conf_class}">{conf_label}: {confidence:.0%}</span>',
-                unsafe_allow_html=True,
-            )
-
         for source in sources:
             title = source.get("title", "Unknown source")
             url = source.get("url", "")
@@ -397,7 +362,7 @@ def display_chat_history():
 
             if role == "assistant":
                 if sources:
-                    display_sources(sources, confidence)
+                    display_sources(sources)
 
                 if audio_base64:
                     st.audio(base64.b64decode(audio_base64), format="audio/wav")
@@ -531,7 +496,7 @@ def main():
                     })
                 else:
                     if result["sources"]:
-                        display_sources(result["sources"], result["confidence"])
+                        display_sources(result["sources"])
 
                     if result["audio_base64"]:
                         play_audio(result["audio_base64"])
@@ -568,7 +533,7 @@ def main():
                     })
                 else:
                     if result["sources"]:
-                        display_sources(result["sources"], result["confidence"])
+                        display_sources(result["sources"])
 
                     if result["audio_base64"]:
                         play_audio(result["audio_base64"])
