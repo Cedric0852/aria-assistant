@@ -1,0 +1,80 @@
+# AI Citizen Support Assistant - API Dockerfile
+# Uses Gunicorn with 4 workers for production
+# syntax=docker/dockerfile:1.4
+
+FROM python:3.11-slim AS builder
+
+# Install uv for fast package management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Set working directory
+WORKDIR /app
+
+# Copy dependency files first for better caching
+COPY pyproject.toml uv.lock* ./
+
+# Create virtual environment
+RUN uv venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install dependencies with BuildKit cache mount for faster rebuilds
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -r pyproject.toml && \
+    uv pip install gunicorn uvicorn[standard]
+
+# Production stage
+FROM python:3.11-slim AS production
+
+# Install runtime dependencies with BuildKit cache for faster rebuilds
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    curl
+
+# Create non-root user for security
+RUN groupadd --gid 1000 api \
+    && useradd --uid 1000 --gid api --shell /bin/bash --create-home api
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Set working directory
+WORKDIR /app
+
+# Copy application code
+COPY --chown=api:api . .
+
+# Copy Gunicorn configuration
+COPY --chown=api:api gunicorn.conf.py ./
+
+# Switch to non-root user
+USER api
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/app
+ENV PORT=8000
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run Gunicorn with 4 workers using uvicorn worker class
+CMD ["gunicorn", "api.server:app", \
+     "--workers", "4", \
+     "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--bind", "0.0.0.0:8000", \
+     "--timeout", "120", \
+     "--keep-alive", "5", \
+     "--max-requests", "1000", \
+     "--max-requests-jitter", "50", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-", \
+     "--log-level", "info"]

@@ -1,0 +1,278 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+@layer base {
+  html {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      'Helvetica Neue', Arial, sans-serif;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
+
+/* Custom component styles */
+@layer components {
+  /* Audio visualizer bars */
+  .audio-bar {
+    @apply bg-primary-500 rounded-full transition-all duration-100 ease-out;
+    min-height: 4px;
+  }
+
+  /* Agent state indicator */
+  .agent-state-indicator {
+    @apply w-3 h-3 rounded-full animate-pulse;
+  }
+
+  .agent-state-listening {
+    @apply bg-agent-listening;
+  }
+
+  .agent-state-thinking {
+    @apply bg-agent-thinking;
+  }
+
+  .agent-state-speaking {
+    @apply bg-agent-speaking;
+  }
+
+  .agent-state-idle {
+    @apply bg-agent-idle;
+  }
+
+  /* Legacy message bubbles (kept for compatibility) */
+  .message-bubble {
+    @apply px-4 py-3 rounded-2xl max-w-[85%] break-words;
+  }
+
+  .message-user {
+    @apply bg-primary-600 text-white ml-auto rounded-br-md;
+  }
+
+  .message-agent {
+    @apply mr-auto rounded-bl-md shadow-sm;
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    border: 1px solid #f3f4f6;
+  }
+
+  /* Modern chat bubbles */
+  .chat-bubble {
+    @apply px-4 py-3 rounded-2xl break-words shadow-sm;
+    max-width: 100%;
+  }
+
+  .chat-bubble-user {
+    @apply bg-gradient-to-br from-blue-500 to-blue-600 text-white;
+    border-radius: 1.25rem 1.25rem 0.25rem 1.25rem;
+  }
+
+  .chat-bubble-bot {
+    @apply bg-white text-gray-800 border border-gray-100;
+    border-radius: 1.25rem 1.25rem 1.25rem 0.25rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+  }
+
+  .chat-bubble-bot .prose {
+    @apply text-gray-800;
+  }
+
+  .chat-bubble-bot .prose p {
+    @apply text-gray-800;
+  }
+
+  .chat-bubble-bot .prose a {
+    @apply text-violet-600 hover:text-violet-700;
+  }
+
+  .chat-bubble-bot .prose code {
+    @apply bg-gray-100 text-violet-700 px-1.5 py-0.5 rounded text-sm;
+  }
+
+  .chat-bubble-bot .prose pre {
+    @apply bg-gray-900 text-gray-100 rounded-lg p-3 my-2 overflow-x-auto;
+  }
+
+  .chat-bubble-bot .prose pre code {
+    @apply bg-transparent text-gray-100 p-0;
+  }
+
+  .chat-bubble-bot .prose ul,
+  .chat-bubble-bot .prose ol {
+    @apply pl-4 my-1;
+  }
+
+  .chat-bubble-bot .prose li {
+    @apply text-gray-700;
+  }
+
+  /* Word reveal animation for agent messages */
+  .word-reveal {
+    display: inline;
+    opacity: 0;
+    animation: fadeInWord 150ms ease-out forwards;
+  }
+
+  .word-reveal.revealed {
+    opacity: 1;
+  }
+
+  /* Smooth word appearance */
+  .revealing-text {
+    display: inline;
+  }
+
+  .revealing-text .word {
+    display: inline;
+    transition: opacity 100ms ease-out;
+  }
+
+  .revealing-text .word.hidden {
+    opacity: 0;
+  }
+
+  .revealing-text .word.visible {
+    opacity: 1;
+  }
+
+  /* Control buttons */
+  .control-button {
+    @apply flex items-center justify-center w-12 h-12 rounded-full
+           transition-all duration-200 ease-in-out
+           focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .control-button-primary {
+    @apply bg-primary-600 text-white hover:bg-primary-700
+           focus:ring-primary-500 active:scale-95;
+  }
+
+  .control-button-secondary {
+    @apply bg-gray-200 text-gray-700 hover:bg-gray-300
+           focus:ring-gray-400 active:scale-95;
+  }
+
+  .control-button-danger {
+    @apply bg-red-500 text-white hover:bg-red-600
+           focus:ring-red-400 active:scale-95;
+  }
+
+  .control-button-active {
+    @apply ring-2 ring-offset-2 ring-primary-500;
+  }
+
+  /* Text input styles */
+  .text-input {
+    @apply w-full px-4 py-3 rounded-full border border-gray-300
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
+           placeholder-gray-400 text-gray-900;
+  }
+
+  .send-button {
+    @apply flex items-center justify-center w-10 h-10 rounded-full
+           bg-primary-600 text-white hover:bg-primary-700
+           transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Loading states */
+  .loading-dots {
+    @apply flex space-x-1;
+  }
+
+  .loading-dot {
+    @apply w-2 h-2 rounded-full bg-gray-400 animate-bounce;
+  }
+
+  .loading-dot:nth-child(2) {
+    animation-delay: 0.1s;
+  }
+
+  .loading-dot:nth-child(3) {
+    animation-delay: 0.2s;
+  }
+}
+
+/* Utility styles */
+@layer utilities {
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Custom scrollbar */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #d1d5db transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400;
+  }
+}
+
+/* LiveKit component overrides */
+.lk-room-container {
+  @apply !bg-transparent;
+}
+
+.lk-grid-layout {
+  @apply !bg-transparent;
+}
+
+.lk-audio-bar-visualizer {
+  @apply !fill-primary-500;
+}
+
+/* Animation keyframes */
+@keyframes fadeInWord {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .message-bubble {
+    @apply max-w-[90%];
+  }
+}
