@@ -2,6 +2,15 @@
 
 A Voice-First Service Assistant that enables citizens to ask questions (via voice or text) about government services and receive accurate, context-aware guidance powered by RAG (Retrieval-Augmented Generation).
 
+## Branches
+
+| Branch | Description | Status |
+|--------|-------------|--------|
+| **main** | Streamlit chat interface using the ARIA API | Deployed |
+| **aria-agent** | Advanced features: LiveKit integration with automatic voice detection for real-time conversations | Local only |
+
+> **Note:** The `aria-agent` branch includes a more advanced implementation with **LiveKit-powered live conversations** featuring automatic voice activity detection (VAD) and turn-taking. Due to infrastructure limitations, this branch is not deployed online but works locally. Feel free to test it!
+
 ## Live Demo
 
 | Service | URL |
