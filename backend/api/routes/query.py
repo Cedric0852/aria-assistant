@@ -436,6 +436,105 @@ async def generate_tts_openai(text: str) -> Optional[bytes]:
         return None
 
 
+async def generate_tts_openai_streaming(text: str) -> AsyncGenerator[bytes, None]:
+    """
+    Generate speech from text using OpenAI TTS with streaming.
+    Uses gpt-4o-mini-tts for streaming support.
+
+    Args:
+        text: Text to convert to speech
+
+    Yields:
+        Audio bytes chunks (PCM format, 24kHz, 16-bit)
+    """
+    try:
+        client = get_openai_client()
+        # Use streaming response with PCM for low-latency
+        with client.audio.speech.with_streaming_response.create(
+            model="gpt-4o-mini-tts",
+            voice="nova",
+            input=text,
+            response_format="pcm",  # Raw PCM for streaming (24kHz, 16-bit)
+        ) as response:
+            # Stream chunks as they arrive
+            for chunk in response.iter_bytes(chunk_size=4096):
+                if chunk:
+                    yield chunk
+    except Exception as e:
+        logger.error(f"OpenAI streaming TTS failed: {str(e)}")
+
+
+async def collect_streaming_tts(text: str) -> Optional[bytes]:
+    """
+    Collect all chunks from streaming TTS into a single audio buffer.
+    Returns complete audio with WAV header for caching.
+
+    Args:
+        text: Text to convert to speech
+
+    Returns:
+        Complete audio bytes with WAV header, or None if failed
+    """
+    try:
+        chunks = []
+        async for chunk in generate_tts_openai_streaming(text):
+            chunks.append(chunk)
+
+        if not chunks:
+            return None
+
+        # Combine all PCM chunks
+        pcm_data = b''.join(chunks)
+
+        # Add WAV header (PCM is 24kHz, 16-bit, mono)
+        wav_audio = add_wav_header(pcm_data, sample_rate=24000, channels=1, bits_per_sample=16)
+        return wav_audio
+    except Exception as e:
+        logger.error(f"Failed to collect streaming TTS: {e}")
+        return None
+
+
+def add_wav_header(pcm_data: bytes, sample_rate: int = 24000, channels: int = 1, bits_per_sample: int = 16) -> bytes:
+    """
+    Add WAV header to raw PCM data.
+
+    Args:
+        pcm_data: Raw PCM audio data
+        sample_rate: Sample rate in Hz (default 24000 for OpenAI)
+        channels: Number of channels (1 for mono)
+        bits_per_sample: Bits per sample (16 for OpenAI)
+
+    Returns:
+        Complete WAV file bytes
+    """
+    import struct
+
+    byte_rate = sample_rate * channels * bits_per_sample // 8
+    block_align = channels * bits_per_sample // 8
+    data_size = len(pcm_data)
+    file_size = 36 + data_size
+
+    # WAV header
+    header = struct.pack(
+        '<4sI4s4sIHHIIHH4sI',
+        b'RIFF',
+        file_size,
+        b'WAVE',
+        b'fmt ',
+        16,  # Subchunk1Size for PCM
+        1,   # AudioFormat (1 = PCM)
+        channels,
+        sample_rate,
+        byte_rate,
+        block_align,
+        bits_per_sample,
+        b'data',
+        data_size
+    )
+
+    return header + pcm_data
+
+
 async def generate_tts_groq(text: str) -> Optional[bytes]:
     """
     Generate speech from text using Groq TTS (fallback).
@@ -463,7 +562,7 @@ async def generate_tts_groq(text: str) -> Optional[bytes]:
 
 async def generate_tts(text: str) -> Optional[bytes]:
     """
-    Generate speech from text. Tries Groq first, falls back to OpenAI.
+    Generate speech from text. Uses OpenAI as primary (Groq is heavily rate-limited).
 
     Args:
         text: Text to convert to speech
@@ -471,14 +570,14 @@ async def generate_tts(text: str) -> Optional[bytes]:
     Returns:
         Audio bytes or None if all providers fail
     """
-    # Try Groq first
-    audio = await generate_tts_groq(text)
+    # Use OpenAI as primary - Groq has aggressive rate limits (3600 TPD)
+    audio = await generate_tts_openai(text)
     if audio:
         return audio
 
-    # Fall back to OpenAI
-    logger.info("Falling back to OpenAI TTS")
-    return await generate_tts_openai(text)
+    # Fall back to Groq only if OpenAI fails
+    logger.info("OpenAI TTS failed, falling back to Groq")
+    return await generate_tts_groq(text)
 
 
 def split_into_sentences(text: str) -> list[str]:
@@ -827,9 +926,10 @@ async def stream_query_response(query: str, session_id: Optional[str] = None) ->
             chunk = answer[i:i + chunk_size]
             yield f"data: {json.dumps({'type': 'token', 'token': chunk})}\n\n"
             await asyncio.sleep(0.01)
+        # Send done first, then sources (order: text -> done -> sources -> audio)
+        yield f"data: {json.dumps({'type': 'done', 'full_response': answer})}\n\n"
         sources = cached.get("sources", [])
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources, 'confidence': 0.9})}\n\n"
-        yield f"data: {json.dumps({'type': 'done', 'full_response': answer})}\n\n"
         return
 
     try:
@@ -909,11 +1009,10 @@ Guidelines:
         # Add current query
         messages.append({"role": "user", "content": query})
 
-        # Send sources early (from RAG retrieval)
+        # Calculate confidence for later use (sources sent after text streaming)
         confidence = 0.0
         if sources:
             confidence = max(s.get("score", 0) for s in sources)
-        yield f"data: {json.dumps({'type': 'sources', 'sources': sources, 'confidence': confidence})}\n\n"
 
         # Stream response from OpenAI directly (with history support)
         client = get_openai_client()
@@ -982,7 +1081,11 @@ Guidelines:
         await cache_response(query, cache_data, actual_session_id)
         logger.info(f"Cached streaming response for: {query[:50]}... (session={actual_session_id})")
 
+        # Send done event with full response (sources will be sent separately after)
         yield f"data: {json.dumps({'type': 'done', 'full_response': full_response})}\n\n"
+
+        # Send sources AFTER text streaming is complete
+        yield f"data: {json.dumps({'type': 'sources', 'sources': sources, 'confidence': confidence})}\n\n"
 
     except Exception as e:
         logger.error(f"Streaming query error: {e}")
@@ -1156,24 +1259,26 @@ async def query_text_stream(request: StreamingQueryRequest):
 
 @router.post("/query/text/stream-with-audio")
 async def query_text_stream_with_audio(request: StreamingQueryRequest):
-    """Stream text response with parallel TTS audio generation.
+    """Stream text response with streaming TTS audio generation.
 
-    Uses Server-Sent Events (SSE) to stream text tokens, then generates
-    TTS audio for the complete response when done.
+    Uses Server-Sent Events (SSE) to stream text tokens, then streams
+    TTS audio chunks for faster audio playback.
 
     Event types:
     - session: Contains session_id
-    - sources: Contains sources array and confidence
     - token: Contains individual response tokens
     - done: Indicates text completion with full_response
-    - audio: Contains base64-encoded audio for the full response
+    - sources: Contains sources array and confidence
+    - audio_start: Indicates audio streaming is starting (includes sample_rate, channels, bits_per_sample)
+    - audio_chunk: Contains base64-encoded audio chunk (PCM data)
+    - audio_end: Indicates audio streaming is complete
     - error: Contains error message
 
     Args:
         request: Query request with question and optional session_id
 
     Returns:
-        StreamingResponse with text/event-stream content including audio
+        StreamingResponse with text/event-stream content including streaming audio
     """
 
     async def stream_with_audio():
@@ -1181,9 +1286,10 @@ async def query_text_stream_with_audio(request: StreamingQueryRequest):
         ttft = None
         cache_hit = False
         first_token_sent = False
-        full_text = ""
         actual_session_id = request.session_id or str(uuid.uuid4())
+        full_text = ""
 
+        # First, yield all events from stream_query_response (text, done, sources)
         async for event in stream_query_response(request.query, request.session_id):
             yield event
 
@@ -1192,40 +1298,60 @@ async def query_text_stream_with_audio(request: StreamingQueryRequest):
                 ttft = (time.perf_counter() - start_time) * 1000
                 first_token_sent = True
 
-            # Parse event to accumulate text
-            if '"type": "token"' in event:
-                # Extract token and accumulate
+            # Capture full_response from done event for TTS later
+            if '"type": "done"' in event:
                 try:
                     data = json.loads(event.replace("data: ", "").strip())
-                    if data.get("type") == "token":
-                        full_text += data.get("token", "")
-                except:
-                    pass
+                    full_text = data.get("full_response", "")
+                except Exception:
+                    full_text = ""
 
-            # When done, check audio cache or generate TTS
-            elif '"type": "done"' in event:
-                if full_text:
-                    # Check audio cache first (session-aware)
-                    cached_audio = await get_cached_audio(request.query, actual_session_id)
-                    if cached_audio:
-                        # Use cached audio - no TTS needed
-                        yield f"data: {json.dumps({'type': 'audio', 'audio_base64': cached_audio})}\n\n"
-                        cache_hit = True
-                    else:
-                        # Generate TTS and cache it
-                        audio_bytes = await generate_tts(full_text)
-                        if audio_bytes:
-                            audio_b64 = base64.b64encode(audio_bytes).decode()
-                            # Cache audio for future requests
-                            await cache_audio(request.query, audio_b64, actual_session_id)
-                            yield f"data: {json.dumps({'type': 'audio', 'audio_base64': audio_b64})}\n\n"
+        # Now all events have been yielded (including sources)
+        # Start audio streaming AFTER sources have been sent
+        if full_text:
+            logger.info(f"Starting streaming TTS for response ({len(full_text)} chars)")
 
-                # Record stats (total includes audio generation time)
-                elapsed_ms = (time.perf_counter() - start_time) * 1000
-                # Consider it a cache hit if TTFT < 100ms
-                if ttft is not None and ttft < 100:
-                    cache_hit = True
-                asyncio.create_task(record_stat("/api/query/text/stream-with-audio", elapsed_ms, cache_hit, ttft))
+            # Send audio_start event with format info
+            yield f"data: {json.dumps({'type': 'audio_start', 'sample_rate': 24000, 'channels': 1, 'bits_per_sample': 16})}\n\n"
+
+            # Stream audio chunks
+            all_chunks = []
+            chunk_count = 0
+            try:
+                async for audio_chunk in generate_tts_openai_streaming(full_text):
+                    if audio_chunk:
+                        all_chunks.append(audio_chunk)
+                        chunk_b64 = base64.b64encode(audio_chunk).decode()
+                        yield f"data: {json.dumps({'type': 'audio_chunk', 'chunk': chunk_b64, 'index': chunk_count})}\n\n"
+                        chunk_count += 1
+
+                # Send audio_end event
+                yield f"data: {json.dumps({'type': 'audio_end', 'total_chunks': chunk_count})}\n\n"
+                logger.info(f"Streamed {chunk_count} audio chunks")
+
+                # Cache complete audio for future requests
+                if all_chunks:
+                    pcm_data = b''.join(all_chunks)
+                    wav_audio = add_wav_header(pcm_data, sample_rate=24000, channels=1, bits_per_sample=16)
+                    audio_b64 = base64.b64encode(wav_audio).decode()
+                    await cache_audio(request.query, audio_b64, actual_session_id)
+                    logger.info(f"Cached complete audio ({len(audio_b64)} bytes base64)")
+
+            except Exception as e:
+                logger.error(f"Streaming TTS error: {e}")
+                # Fallback to non-streaming TTS
+                logger.info("Falling back to non-streaming TTS")
+                audio_bytes = await generate_tts(full_text)
+                if audio_bytes:
+                    audio_b64 = base64.b64encode(audio_bytes).decode()
+                    await cache_audio(request.query, audio_b64, actual_session_id)
+                    yield f"data: {json.dumps({'type': 'audio', 'audio_base64': audio_b64})}\n\n"
+
+        # Record stats (total includes audio generation time)
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        if ttft is not None and ttft < 100:
+            cache_hit = True
+        asyncio.create_task(record_stat("/api/query/text/stream-with-audio", elapsed_ms, cache_hit, ttft))
 
     return StreamingResponse(
         stream_with_audio(),

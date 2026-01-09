@@ -198,6 +198,40 @@ def play_audio(audio_base64: str):
         st.error(f"Failed to play audio: {e}")
 
 
+def create_wav_header(sample_rate: int = 24000, channels: int = 1, bits_per_sample: int = 16, data_size: int = 0) -> bytes:
+    """Create a WAV header for PCM audio data."""
+    import struct
+
+    byte_rate = sample_rate * channels * bits_per_sample // 8
+    block_align = channels * bits_per_sample // 8
+    file_size = 36 + data_size
+
+    header = struct.pack(
+        '<4sI4s4sIHHIIHH4sI',
+        b'RIFF',
+        file_size,
+        b'WAVE',
+        b'fmt ',
+        16,
+        1,
+        channels,
+        sample_rate,
+        byte_rate,
+        block_align,
+        bits_per_sample,
+        b'data',
+        data_size
+    )
+    return header
+
+
+def combine_pcm_to_wav(pcm_chunks: list, sample_rate: int = 24000, channels: int = 1, bits_per_sample: int = 16) -> bytes:
+    """Combine PCM chunks into a complete WAV file."""
+    pcm_data = b''.join(pcm_chunks)
+    header = create_wav_header(sample_rate, channels, bits_per_sample, len(pcm_data))
+    return header + pcm_data
+
+
 def stream_text_response(query: str) -> dict:
     """
     Stream text response from backend API using SSE.
@@ -227,7 +261,7 @@ def stream_text_response(query: str) -> dict:
             },
             stream=True,
             headers={"Accept": "text/event-stream"},
-            timeout=120,
+            timeout=300,  # 5 min timeout to allow for long TTS generation
         )
 
         if response.status_code != 200:
@@ -237,7 +271,14 @@ def stream_text_response(query: str) -> dict:
         client = sseclient.SSEClient(response)
 
         response_placeholder = st.empty()
+        sources_placeholder = st.empty()
+        audio_status_placeholder = st.empty()
+        audio_placeholder = st.empty()
         accumulated_text = ""
+
+        # For streaming audio
+        audio_chunks = []
+        audio_format = {"sample_rate": 24000, "channels": 1, "bits_per_sample": 16}
 
         for event in client.events():
             if not event.data:
@@ -253,10 +294,6 @@ def stream_text_response(query: str) -> dict:
                         st.session_state.session_id = new_session_id
                         save_session_to_local_storage(new_session_id)
 
-                elif event_type == "sources":
-                    result["sources"] = data.get("sources", [])
-                    result["confidence"] = data.get("confidence", 0.0)
-
                 elif event_type == "token":
                     token = data.get("token", "")
                     accumulated_text += token
@@ -265,12 +302,57 @@ def stream_text_response(query: str) -> dict:
                 elif event_type == "done":
                     result["full_response"] = data.get("full_response", accumulated_text)
                     response_placeholder.markdown(result["full_response"])
+                    # Show audio generation status
+                    audio_status_placeholder.caption("🔊 Generating audio...")
+
+                elif event_type == "sources":
+                    result["sources"] = data.get("sources", [])
+                    result["confidence"] = data.get("confidence", 0.0)
+                    # Display sources immediately when received
+                    if result["sources"]:
+                        with sources_placeholder.container():
+                            display_sources(result["sources"])
+
+                elif event_type == "audio_start":
+                    # Streaming audio starting - get format info
+                    audio_format["sample_rate"] = data.get("sample_rate", 24000)
+                    audio_format["channels"] = data.get("channels", 1)
+                    audio_format["bits_per_sample"] = data.get("bits_per_sample", 16)
+                    audio_chunks = []
+                    audio_status_placeholder.caption("🔊 Streaming audio...")
+
+                elif event_type == "audio_chunk":
+                    # Receive audio chunk
+                    chunk_b64 = data.get("chunk", "")
+                    if chunk_b64:
+                        chunk_bytes = base64.b64decode(chunk_b64)
+                        audio_chunks.append(chunk_bytes)
+
+                elif event_type == "audio_end":
+                    # Audio streaming complete - combine chunks and play
+                    audio_status_placeholder.empty()
+                    if audio_chunks:
+                        wav_audio = combine_pcm_to_wav(
+                            audio_chunks,
+                            audio_format["sample_rate"],
+                            audio_format["channels"],
+                            audio_format["bits_per_sample"]
+                        )
+                        result["audio_base64"] = base64.b64encode(wav_audio).decode()
+                        with audio_placeholder.container():
+                            st.audio(wav_audio, format="audio/wav", autoplay=True)
 
                 elif event_type == "audio":
+                    # Fallback: non-streaming audio (complete audio in one event)
                     result["audio_base64"] = data.get("audio_base64")
+                    audio_status_placeholder.empty()
+                    if result["audio_base64"]:
+                        with audio_placeholder.container():
+                            play_audio(result["audio_base64"])
 
                 elif event_type == "error":
                     result["error"] = data.get("error", "Unknown error")
+                    audio_status_placeholder.empty()
                     break
 
                 elif event_type == "heartbeat":
@@ -278,6 +360,9 @@ def stream_text_response(query: str) -> dict:
 
             except json.JSONDecodeError:
                 continue
+
+        # Clear audio status if we exit loop without audio
+        audio_status_placeholder.empty()
 
     except requests.exceptions.Timeout:
         result["error"] = "Request timed out. Please try again."
@@ -495,12 +580,7 @@ def main():
                         "content": f"Error: {result['error']}",
                     })
                 else:
-                    if result["sources"]:
-                        display_sources(result["sources"])
-
-                    if result["audio_base64"]:
-                        play_audio(result["audio_base64"])
-
+                    # Sources and audio are displayed in real-time within stream_text_response
                     st.session_state.messages.append({
                         "role": "assistant",
                         "content": result["full_response"],
@@ -532,12 +612,7 @@ def main():
                         "content": f"Error: {result['error']}",
                     })
                 else:
-                    if result["sources"]:
-                        display_sources(result["sources"])
-
-                    if result["audio_base64"]:
-                        play_audio(result["audio_base64"])
-
+                    # Sources and audio are displayed in real-time within stream_text_response
                     st.session_state.messages.append({
                         "role": "assistant",
                         "content": result["full_response"],

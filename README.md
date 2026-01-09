@@ -91,22 +91,23 @@ A Voice-First Service Assistant that enables citizens to ask questions (via voic
         │   EXTERNAL AI SERVICES  │     │   SESSION & CACHE       │
         │                         │     │       (Redis)           │
         │   ┌───────────────────┐ │     │                         │
-        │   │ Groq API          │ │     │   Session Store         │
-        │   │ • Whisper STT     │ │     │   ─────────────         │
-        │   │   (large-v3-turbo)│ │     │   Chat history (30m)    │
-        │   │ • Orpheus TTS     │ │     │                         │
-        │   └───────────────────┘ │     │   Query Cache           │
-        │                         │     │   ───────────           │
-        │   ┌───────────────────┐ │     │   Responses (1hr)       │
-        │   │ OpenAI API        │ │     │                         │
-        │   │ • GPT-4o-mini     │ │     │   Embedding Cache       │
-        │   │   (LLM + Class.)  │ │     │   ───────────────       │
-        │   │ • Embeddings      │ │     │   Vectors (24hr)        │
-        │   │   (text-embed-3)  │ │     │                         │
-        │   │ • TTS-1 (fallback)│ │     │   Audio Cache           │
-        │   └───────────────────┘ │     │   ───────────           │
-        └─────────────────────────┘     │   TTS output (1hr)      │
-                                        └─────────────────────────┘
+        │   │ OpenAI API        │ │     │   Session Store         │
+        │   │ • GPT-4o-mini     │ │     │   ─────────────         │
+        │   │   (LLM + Class.)  │ │     │   Chat history (30m)    │
+        │   │ • Embeddings      │ │     │                         │
+        │   │   (text-embed-3)  │ │     │   Query Cache           │
+        │   │ • gpt-4o-mini-tts │ │     │   ───────────           │
+        │   │   (streaming TTS) │ │     │   Responses (1hr)       │
+        │   └───────────────────┘ │     │                         │
+        │                         │     │   Embedding Cache       │
+        │   ┌───────────────────┐ │     │   ───────────────       │
+        │   │ Groq API          │ │     │   Vectors (24hr)        │
+        │   │ • Whisper STT     │ │     │                         │
+        │   │   (large-v3-turbo)│ │     │   Audio Cache           │
+        │   │ • Orpheus TTS     │ │     │   ───────────           │
+        │   │   (fallback only) │ │     │   TTS output (1hr)      │
+        │   └───────────────────┘ │     │                         │
+        └─────────────────────────┘     └─────────────────────────┘
                        │
                        ▼
         ┌─────────────────────────┐
@@ -189,13 +190,24 @@ A Voice-First Service Assistant that enables citizens to ask questions (via voic
                                                                    └──────────────┘
 
 
-  STREAMING RESPONSE (SSE)
-  ────────────────────────
+  STREAMING RESPONSE (SSE) - WITH STREAMING AUDIO
+  ─────────────────────────────────────────────────
 
-    Query ─────► Session ─────► Sources ─────► Tokens ─────► Done ─────► Audio
-                   │               │             │            │            │
-                   ▼               ▼             ▼            ▼            ▼
-              session_id      sources[]     "tok","en"  full_response  audio_base64
+    Query ──► Session ──► Tokens ──► Done ──► Sources ──► Audio Stream
+                │            │          │         │            │
+                ▼            ▼          ▼         ▼            ▼
+           session_id   "tok","en"  full_resp  sources[]   audio_start
+                                                            audio_chunk (×N)
+                                                            audio_end
+
+    Event Order:
+    1. session      → Session ID for conversation tracking
+    2. tokens       → Streaming text response (multiple events)
+    3. done         → Text complete with full_response
+    4. sources      → Source documents with relevance scores
+    5. audio_start  → TTS streaming begins (sample_rate, channels, bits)
+    6. audio_chunk  → PCM audio chunks (base64, streamed as generated)
+    7. audio_end    → Audio streaming complete
 
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -212,7 +224,8 @@ A Voice-First Service Assistant that enables citizens to ask questions (via voic
 | **LLM** | OpenAI GPT-4o-mini | Response generation |
 | **Embeddings** | OpenAI text-embedding-3-small | Vector embeddings |
 | **STT** | Groq Whisper large-v3-turbo | Speech-to-text |
-| **TTS** | Groq Orpheus / OpenAI TTS-1 | Text-to-speech |
+| **TTS** | OpenAI gpt-4o-mini-tts (streaming) | Text-to-speech with streaming audio |
+| **TTS Fallback** | Groq Orpheus | Fallback when OpenAI unavailable |
 | **Cache/Sessions** | Redis 7 | Caching & session management |
 | **Container** | Docker + Docker Compose | Deployment |
 
@@ -321,13 +334,10 @@ Accept: text/event-stream
 }
 ```
 
-SSE Events:
+SSE Events (with streaming audio):
 ```
 event: session
 data: {"type": "session", "session_id": "abc123"}
-
-event: sources
-data: {"type": "sources", "sources": [...], "confidence": 0.85}
 
 event: token
 data: {"type": "token", "token": "You"}
@@ -335,9 +345,24 @@ data: {"type": "token", "token": "You"}
 event: done
 data: {"type": "done", "full_response": "You need..."}
 
-event: audio
-data: {"type": "audio", "audio_base64": "..."}
+event: sources
+data: {"type": "sources", "sources": [...], "confidence": 0.85}
+
+event: audio_start
+data: {"type": "audio_start", "sample_rate": 24000, "channels": 1, "bits_per_sample": 16}
+
+event: audio_chunk
+data: {"type": "audio_chunk", "chunk": "<base64 PCM data>", "index": 0}
+
+event: audio_chunk
+data: {"type": "audio_chunk", "chunk": "<base64 PCM data>", "index": 1}
+... (multiple chunks)
+
+event: audio_end
+data: {"type": "audio_end", "total_chunks": 42}
 ```
+
+**Note:** Audio is streamed as PCM chunks (24kHz, 16-bit, mono) for low-latency playback. The frontend combines chunks and adds a WAV header for playback.
 
 #### Audio Query
 ```http
@@ -398,7 +423,8 @@ GET /api/stats
 |-------|----------|-----------|
 | **STT** | Groq API (Whisper) | 10x faster than local, no GPU required |
 | **LLM** | OpenAI API (GPT-4o-mini) | Consistent quality, managed scaling |
-| **TTS** | Groq API + OpenAI fallback | Low latency, high availability |
+| **TTS** | OpenAI API (gpt-4o-mini-tts) | Streaming audio support, lower latency |
+| **TTS Fallback** | Groq API (Orpheus) | Fallback when OpenAI unavailable (rate-limited on free tier) |
 | **Embeddings** | OpenAI API | Cached in Redis to minimize API calls |
 
 **Why not embedded models?**
@@ -429,8 +455,8 @@ GET /api/stats
 | Strategy | Impact | Implementation |
 |----------|--------|----------------|
 | **Response Streaming** | 2-3s TTFT vs 5-8s wait | SSE events stream tokens |
+| **Streaming TTS** | Faster time-to-first-audio | OpenAI gpt-4o-mini-tts streams PCM chunks |
 | **Multi-layer Caching** | 10-35x speedup | Redis: queries (1hr), embeddings (24hr), audio (1hr) |
-| **Parallel Processing** | -30% total time | TTS generates while streaming completes |
 | **Connection Pooling** | -50ms per request | Reused Redis/HTTP connections |
 | **Async Everything** | Higher throughput | FastAPI async, async Redis, async LLM |
 
@@ -702,14 +728,15 @@ class QueryCategory(Enum):
 | **LLM** | GPT-4o-mini | Best cost/performance ratio, fast inference |
 | **RAG Framework** | LlamaIndex | Better RAG abstractions than LangChain for document Q&A |
 | **Embeddings** | text-embedding-3-small | Good accuracy, lower cost, 1536 dimensions |
-| **TTS** | Groq Orpheus + OpenAI fallback | Groq for speed, OpenAI for reliability |
+| **TTS** | OpenAI gpt-4o-mini-tts | Streaming audio support, faster time-to-first-audio |
+| **TTS Fallback** | Groq Orpheus | Fallback only (heavily rate-limited on free tier: 3600 TPD) |
 | **Vector Store** | LlamaIndex In-Memory | Sufficient for prototype scale, persistent to disk |
 | **Cache** | Redis | Fast, supports TTL, production-proven |
 
 ### Latency Optimization Strategies
 
 1. **Response Streaming (SSE)**: Tokens stream as generated, reducing perceived latency
-2. **Parallel TTS**: Audio generation starts while streaming completes
+2. **Streaming TTS**: Audio chunks stream as generated using OpenAI gpt-4o-mini-tts, faster time-to-first-audio
 3. **Multi-Layer Caching**:
    - Embedding cache (24hr TTL) - avoid redundant API calls
    - Query cache (1hr TTL) - instant responses for repeated queries
