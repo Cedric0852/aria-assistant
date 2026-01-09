@@ -235,8 +235,8 @@ An intelligent voice-first assistant for Rwanda government services (IremboGov) 
 ### 1. Clone and Configure
 
 ```bash
-git clone https://github.com/yourusername/aria-agent.git
-cd aria-agent
+git clone https://github.com/Cedric0852/aria-assistant.git
+cd aria-assistant
 cp .env.example .env
 cp livekit/livekit.yaml.example livekit/livekit.yaml
 ```
@@ -279,7 +279,17 @@ docker-compose up -d
 docker-compose up -d --scale api=4 --scale agent=4
 ```
 
-### 4. Access the Application
+### 4. Index Your Documents (Required!)
+
+> **IMPORTANT**: After starting services, you **must** hit the `/refresh` endpoint to index your documents before making any queries. Without this step, the RAG pipeline will have no knowledge to retrieve from.
+
+```bash
+curl -X POST http://localhost:8000/api/documents/refresh
+```
+
+Wait for the response confirming the index has been rebuilt before proceeding.
+
+### 5. Access the Application
 
 | Service | URL |
 |---------|-----|
